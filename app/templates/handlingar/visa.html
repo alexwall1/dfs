@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Handling #{{ handling.id }}{% endblock %}
+{% block content %}
+<h2>Handling #{{ handling.id }}</h2>
+<p>
+    <a href="{{ url_for('arenden.visa', arende_id=handling.arende_id) }}">
+        &larr; Tillbaka till {{ handling.arende.diarienummer }}
+    </a>
+</p>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <table class="table">
+            <tr><th>Typ</th><td>{{ handling.typ_label }}</td></tr>
+            <tr><th>Beskrivning</th><td>{{ handling.beskrivning }}</td></tr>
+            <tr><th>Datum</th><td>{{ handling.datum_inkom.strftime('%Y-%m-%d') if handling.datum_inkom else '-' }}</td></tr>
+            <tr><th>Avsändare</th><td>{{ handling.avsandare or '-' }}</td></tr>
+            <tr><th>Mottagare</th><td>{{ handling.mottagare or '-' }}</td></tr>
+            <tr><th>Sekretess</th><td>{{ 'Ja' if handling.sekretess else 'Nej' }}</td></tr>
+            <tr><th>Registrerad av</th><td>{{ handling.skapare.full_name if handling.skapare else '-' }}</td></tr>
+            <tr><th>Registrerad</th><td>{{ handling.skapad_datum.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<h4>Filversioner</h4>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Version</th>
+            <th>Filnamn</th>
+            <th>Typ</th>
+            <th>Kommentar</th>
+            <th>Uppladdad av</th>
+            <th>Datum</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for v in versioner %}
+        <tr>
+            <td>{{ v.version_nr }}</td>
+            <td>{{ v.filnamn }}</td>
+            <td>{{ v.mime_type or '-' }}</td>
+            <td>{{ v.kommentar or '-' }}</td>
+            <td>{{ v.skapare.full_name if v.skapare else '-' }}</td>
+            <td>{{ v.skapad_datum.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+                <a href="{{ url_for('handlingar.ladda_ner', version_id=v.id) }}" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-download"></i>
+                </a>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted">Inga filer uppladdade.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if current_user.role in ('admin', 'registrator', 'handlaggare') %}
+<div class="card col-md-6">
+    <div class="card-body">
+        <h6>Ladda upp ny version</h6>
+        <form method="POST" action="{{ url_for('handlingar.ny_version', handling_id=handling.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-2">
+                <input type="file" class="form-control" name="fil" required>
+            </div>
+            <div class="mb-2">
+                <input type="text" class="form-control" name="kommentar" placeholder="Kommentar (valfritt)">
+            </div>
+            <button type="submit" class="btn btn-success btn-sm">Ladda upp</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if current_user.role in ('admin', 'registrator') %}
+<form method="POST" action="{{ url_for('handlingar.ta_bort', handling_id=handling.id) }}" class="mt-3"
+      onsubmit="return confirm('Är du säker?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-danger btn-sm">
+        <i class="bi bi-trash"></i> Ta bort handling
+    </button>
+</form>
+{% endif %}
+{% endblock %}

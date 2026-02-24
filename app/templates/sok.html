@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Sök{% endblock %}
+{% block content %}
+<h2>Sök ärenden</h2>
+
+<form method="GET" class="card card-body mb-4">
+    <div class="row g-3">
+        <div class="col-md-3">
+            <label class="form-label">Diarienummer</label>
+            <input type="text" class="form-control" name="diarienummer" value="{{ q.get('diarienummer', '') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Ärendemening</label>
+            <input type="text" class="form-control" name="mening" value="{{ q.get('mening', '') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Status</label>
+            <select class="form-select" name="status">
+                <option value="">Alla</option>
+                <option value="oppnat" {{ 'selected' if q.get('status') == 'oppnat' }}>Öppnat</option>
+                <option value="pagaende" {{ 'selected' if q.get('status') == 'pagaende' }}>Pågående</option>
+                <option value="avslutat" {{ 'selected' if q.get('status') == 'avslutat' }}>Avslutat</option>
+                <option value="arkiverat" {{ 'selected' if q.get('status') == 'arkiverat' }}>Arkiverat</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Från datum</label>
+            <input type="date" class="form-control" name="fran" value="{{ q.get('fran', '') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Till datum</label>
+            <input type="date" class="form-control" name="till" value="{{ q.get('till', '') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Avsändare</label>
+            <input type="text" class="form-control" name="avsandare" value="{{ q.get('avsandare', '') }}">
+        </div>
+        <div class="col-md-3">
+            <button type="submit" class="btn btn-primary mt-4">
+                <i class="bi bi-search"></i> Sök
+            </button>
+        </div>
+    </div>
+</form>
+
+{% if results is not none %}
+<h4>Resultat ({{ results|length }})</h4>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Diarienummer</th>
+            <th>Ärende</th>
+            <th>Status</th>
+            <th>Handläggare</th>
+            <th>Skapad</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in results %}
+        <tr>
+            <td><a href="{{ url_for('arenden.visa', arende_id=a.id) }}">{{ a.diarienummer }}</a></td>
+            <td>{{ a.arende_mening }}{% if a.sekretess %} <i class="bi bi-lock-fill text-danger"></i>{% endif %}</td>
+            <td><span class="badge bg-secondary">{{ a.status_label }}</span></td>
+            <td>{{ a.handlaggare.full_name if a.handlaggare else '-' }}</td>
+            <td>{{ a.skapad_datum.strftime('%Y-%m-%d') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted">Inga resultat.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

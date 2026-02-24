@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}{{ arende.diarienummer }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h2>{{ arende.diarienummer }}</h2>
+        <p class="lead">{{ arende.arende_mening }}</p>
+    </div>
+    <div>
+        {% if current_user.role in ('admin', 'registrator') %}
+        <a href="{{ url_for('arenden.redigera', arende_id=arende.id) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-pencil"></i> Redigera
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <table class="table">
+            <tr><th>Status</th><td><span class="badge bg-secondary">{{ arende.status_label }}</span></td></tr>
+            <tr><th>Handläggare</th><td>{{ arende.handlaggare.full_name if arende.handlaggare else '-' }}</td></tr>
+            <tr><th>Skapad av</th><td>{{ arende.skapare.full_name if arende.skapare else '-' }}</td></tr>
+            <tr><th>Skapad datum</th><td>{{ arende.skapad_datum.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+            <tr><th>Senast ändrad</th><td>{{ arende.andrad_datum.strftime('%Y-%m-%d %H:%M') if arende.andrad_datum else '-' }}</td></tr>
+            {% if arende.sekretess %}
+            <tr><th>Sekretess</th><td><i class="bi bi-lock-fill text-danger"></i> {{ arende.sekretess_grund or 'Ja' }}</td></tr>
+            {% endif %}
+        </table>
+    </div>
+    <div class="col-md-6">
+        {% if arende.allowed_transitions and current_user.role in ('admin', 'registrator', 'handlaggare') %}
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title">Ändra status</h6>
+                {% for s in arende.allowed_transitions %}
+                <form method="POST" action="{{ url_for('arenden.byt_status', arende_id=arende.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="ny_status" value="{{ s }}">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">
+                        {{ arende.STATUS_LABELS.get(s, s) }}
+                    </button>
+                </form>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if current_user.role == 'admin' %}
+        <form method="POST" action="{{ url_for('arenden.ta_bort', arende_id=arende.id) }}" class="mt-2"
+              onsubmit="return confirm('Är du säker på att du vill ta bort detta ärende?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash"></i> Ta bort ärende
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4>Handlingar</h4>
+    {% if current_user.role in ('admin', 'registrator', 'handlaggare') %}
+    <a href="{{ url_for('handlingar.ny', arende_id=arende.id) }}" class="btn btn-success btn-sm">
+        <i class="bi bi-plus-lg"></i> Ny handling
+    </a>
+    {% endif %}
+</div>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Typ</th>
+            <th>Beskrivning</th>
+            <th>Datum</th>
+            <th>Avsändare/Mottagare</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for h in handlingar %}
+        <tr>
+            <td><a href="{{ url_for('handlingar.visa', handling_id=h.id) }}">{{ h.id }}</a></td>
+            <td>{{ h.typ_label }}{% if h.sekretess %} <i class="bi bi-lock-fill text-danger"></i>{% endif %}</td>
+            <td>{{ h.beskrivning }}</td>
+            <td>{{ h.datum_inkom.strftime('%Y-%m-%d') if h.datum_inkom else '-' }}</td>
+            <td>{{ h.avsandare or h.mottagare or '-' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted">Inga handlingar registrerade.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Ny användare{% endblock %}
+{% block content %}
+<h2>Ny användare</h2>
+
+<form method="POST" class="col-md-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+        <label for="username" class="form-label">Användarnamn *</label>
+        <input type="text" class="form-control" id="username" name="username" required maxlength="80">
+    </div>
+    <div class="mb-3">
+        <label for="full_name" class="form-label">Fullständigt namn *</label>
+        <input type="text" class="form-control" id="full_name" name="full_name" required maxlength="200">
+    </div>
+    <div class="mb-3">
+        <label for="email" class="form-label">E-post</label>
+        <input type="email" class="form-control" id="email" name="email" maxlength="200">
+    </div>
+    <div class="mb-3">
+        <label for="role" class="form-label">Roll *</label>
+        <select class="form-select" id="role" name="role" required>
+            <option value="handlaggare">Handläggare</option>
+            <option value="registrator">Registrator</option>
+            <option value="arkivarie">Arkivarie</option>
+            <option value="admin">Administratör</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="password" class="form-label">Lösenord *</label>
+        <input type="password" class="form-control" id="password" name="password" required minlength="12">
+    </div>
+    <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" id="maste_byta_losenord"
+               name="maste_byta_losenord" checked>
+        <label class="form-check-label" for="maste_byta_losenord">
+            Kräv lösenordsbyte vid första inloggning
+        </label>
+    </div>
+    <button type="submit" class="btn btn-primary">Skapa</button>
+    <a href="{{ url_for('admin.anvandare') }}" class="btn btn-secondary">Avbryt</a>
+</form>
+{% endblock %}

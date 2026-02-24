@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Arkiv{% endblock %}
+{% block content %}
+<h2>Arkiv</h2>
+<p>Avslutade och arkiverade ärenden.</p>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Diarienummer</th>
+            <th>Ärende</th>
+            <th>Status</th>
+            <th>Handläggare</th>
+            <th>Avslutat</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in arenden %}
+        <tr>
+            <td><a href="{{ url_for('arenden.visa', arende_id=a.id) }}">{{ a.diarienummer }}</a></td>
+            <td>{{ a.arende_mening }}</td>
+            <td><span class="badge bg-secondary">{{ a.status_label }}</span></td>
+            <td>{{ a.handlaggare.full_name if a.handlaggare else '-' }}</td>
+            <td>{{ a.andrad_datum.strftime('%Y-%m-%d') if a.andrad_datum else '-' }}</td>
+            <td>
+                <a href="{{ url_for('arkiv.exportera', arende_id=a.id) }}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-download"></i> Exportera JSON
+                </a>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted">Inga avslutade ärenden.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

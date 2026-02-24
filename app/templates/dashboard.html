@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Översikt{% endblock %}
+{% block content %}
+<h2>Översikt</h2>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-bg-primary">
+            <div class="card-body">
+                <h5 class="card-title">Öppnade</h5>
+                <p class="display-6">{{ stats.oppna }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-warning">
+            <div class="card-body">
+                <h5 class="card-title">Pågående</h5>
+                <p class="display-6">{{ stats.pagaende }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-bg-success">
+            <div class="card-body">
+                <h5 class="card-title">Avslutade</h5>
+                <p class="display-6">{{ stats.avslutade }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if current_user.role in ('admin', 'registrator') %}
+<a href="{{ url_for('arenden.ny') }}" class="btn btn-primary mb-3">
+    <i class="bi bi-plus-lg"></i> Nytt ärende
+</a>
+{% endif %}
+
+{% if mina_arenden %}
+<h4>Mina ärenden</h4>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Diarienummer</th>
+            <th>Ärende</th>
+            <th>Status</th>
+            <th>Datum</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in mina_arenden %}
+        <tr>
+            <td><a href="{{ url_for('arenden.visa', arende_id=a.id) }}">{{ a.diarienummer }}</a></td>
+            <td>{{ a.arende_mening }}</td>
+            <td><span class="badge bg-secondary">{{ a.status_label }}</span></td>
+            <td>{{ a.skapad_datum.strftime('%Y-%m-%d') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<h4>Senaste ärenden</h4>
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Diarienummer</th>
+            <th>Ärende</th>
+            <th>Status</th>
+            <th>Handläggare</th>
+            <th>Datum</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in senaste %}
+        <tr>
+            <td><a href="{{ url_for('arenden.visa', arende_id=a.id) }}">{{ a.diarienummer }}</a></td>
+            <td>{{ a.arende_mening }}{% if a.sekretess %} <i class="bi bi-lock-fill text-danger" title="Sekretess"></i>{% endif %}</td>
+            <td><span class="badge bg-secondary">{{ a.status_label }}</span></td>
+            <td>{{ a.handlaggare.full_name if a.handlaggare else '-' }}</td>
+            <td>{{ a.skapad_datum.strftime('%Y-%m-%d') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Granskningslogg{% endblock %}
+{% block content %}
+<h2>Granskningslogg</h2>
+
+<table class="table table-striped table-sm">
+    <thead>
+        <tr>
+            <th>Tidpunkt</th>
+            <th>Användare</th>
+            <th>Händelse</th>
+            <th>Objekt</th>
+            <th>Detaljer</th>
+            <th>IP</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for e in pagination.items %}
+        <tr>
+            <td>{{ e.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>{{ e.user.username if e.user else '-' }}</td>
+            <td>{{ e.action }}</td>
+            <td>{{ e.target_type }} #{{ e.target_id if e.target_id else '' }}</td>
+            <td><small>{{ e.details if e.details else '' }}</small></td>
+            <td>{{ e.ip_address or '-' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if pagination.pages > 1 %}
+<nav>
+    <ul class="pagination">
+        {% for p in pagination.iter_pages() %}
+        {% if p %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+            <a class="page-link" href="{{ url_for('admin.logg', page=p) }}">{{ p }}</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><span class="page-link">...</span></li>
+        {% endif %}
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

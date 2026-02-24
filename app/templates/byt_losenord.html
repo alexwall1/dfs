@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Byt lösenord{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-5">
+        <div class="card shadow">
+            <div class="card-body">
+                <h3 class="card-title mb-1">Byt lösenord</h3>
+                {% if current_user.maste_byta_losenord %}
+                <p class="text-muted mb-4">Du måste byta lösenord innan du kan använda systemet.</p>
+                {% endif %}
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label for="nytt_losenord" class="form-label">Nytt lösenord *</label>
+                        <input type="password" class="form-control" id="nytt_losenord"
+                               name="nytt_losenord" required autocomplete="new-password">
+                        <div class="form-text">
+                            Minst 12 tecken med versaler, gemener, siffror och specialtecken.
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="bekraftelse" class="form-label">Bekräfta lösenord *</label>
+                        <input type="password" class="form-control" id="bekraftelse"
+                               name="bekraftelse" required autocomplete="new-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Byt lösenord</button>
+                    {% if not current_user.maste_byta_losenord %}
+                    <a href="{{ url_for('auth.dashboard') }}" class="btn btn-secondary">Avbryt</a>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

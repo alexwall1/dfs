@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Ärenden{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Ärenden</h2>
+    {% if current_user.role in ('admin', 'registrator') %}
+    <a href="{{ url_for('arenden.ny') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg"></i> Nytt ärende
+    </a>
+    {% endif %}
+</div>
+
+<div class="mb-3">
+    <div class="btn-group" role="group">
+        <a href="{{ url_for('arenden.lista') }}" class="btn btn-outline-secondary {{ 'active' if not status }}">Alla</a>
+        <a href="{{ url_for('arenden.lista', status='oppnat') }}" class="btn btn-outline-secondary {{ 'active' if status == 'oppnat' }}">Öppnade</a>
+        <a href="{{ url_for('arenden.lista', status='pagaende') }}" class="btn btn-outline-secondary {{ 'active' if status == 'pagaende' }}">Pågående</a>
+        <a href="{{ url_for('arenden.lista', status='avslutat') }}" class="btn btn-outline-secondary {{ 'active' if status == 'avslutat' }}">Avslutade</a>
+        <a href="{{ url_for('arenden.lista', status='arkiverat') }}" class="btn btn-outline-secondary {{ 'active' if status == 'arkiverat' }}">Arkiverade</a>
+    </div>
+</div>
+
+<table class="table table-striped table-hover">
+    <thead>
+        <tr>
+            <th>Diarienummer</th>
+            <th>Ärende</th>
+            <th>Status</th>
+            <th>Handläggare</th>
+            <th>Skapad</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in pagination.items %}
+        <tr>
+            <td><a href="{{ url_for('arenden.visa', arende_id=a.id) }}">{{ a.diarienummer }}</a></td>
+            <td>{{ a.arende_mening }}{% if a.sekretess %} <i class="bi bi-lock-fill text-danger" title="Sekretess"></i>{% endif %}</td>
+            <td><span class="badge bg-secondary">{{ a.status_label }}</span></td>
+            <td>{{ a.handlaggare.full_name if a.handlaggare else '-' }}</td>
+            <td>{{ a.skapad_datum.strftime('%Y-%m-%d') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted">Inga ärenden hittades.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if pagination.pages > 1 %}
+<nav>
+    <ul class="pagination">
+        {% for p in pagination.iter_pages() %}
+        {% if p %}
+        <li class="page-item {{ 'active' if p == pagination.page }}">
+            <a class="page-link" href="{{ url_for('arenden.lista', page=p, status=status) }}">{{ p }}</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><span class="page-link">...</span></li>
+        {% endif %}
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

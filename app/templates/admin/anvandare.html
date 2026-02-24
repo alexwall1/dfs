@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Användare{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Användare</h2>
+    <a href="{{ url_for('admin.ny_anvandare') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg"></i> Ny användare
+    </a>
+</div>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Användarnamn</th>
+            <th>Namn</th>
+            <th>E-post</th>
+            <th>Roll</th>
+            <th>Aktiv</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.username }}</td>
+            <td>{{ u.full_name }}</td>
+            <td>{{ u.email or '-' }}</td>
+            <td>{{ u.role_label }}</td>
+            <td>{{ 'Ja' if u.active else 'Nej' }}</td>
+            <td>
+                <a href="{{ url_for('admin.redigera_anvandare', user_id=u.id) }}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-pencil"></i>
+                </a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

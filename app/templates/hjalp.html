@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Hjälp{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-lg-10">
+
+<h1 class="mb-4"><i class="bi bi-question-circle"></i> Användarhandbok</h1>
+
+<nav class="mb-4">
+    <h5>Innehåll</h5>
+    <ol>
+        <li><a href="#introduktion">Introduktion</a></li>
+        <li><a href="#inloggning">Inloggning</a></li>
+        <li><a href="#oversikt">Översikt (Dashboard)</a></li>
+        <li><a href="#arenden">Ärenden</a></li>
+        <li><a href="#handlingar">Handlingar och dokument</a></li>
+        <li><a href="#sok">Sök</a></li>
+        <li><a href="#arkiv">Arkiv</a></li>
+        <li><a href="#administration">Administration</a></li>
+        <li><a href="#roller">Roller och behörigheter</a></li>
+    </ol>
+</nav>
+
+<hr>
+
+<h2 id="introduktion">Introduktion</h2>
+<p>DFS är ett diarieförings- och ärendehanteringssystem byggt i enlighet med Offentlighets- och sekretesslagen (2009:400) samt Arkivlagen (1990:782). Systemet hanterar registrering av ärenden, handlingar och dokument med fullständig spårbarhet via granskningslogg.</p>
+
+<hr>
+
+<h2 id="inloggning">Inloggning</h2>
+<ol>
+    <li>Öppna systemet i webbläsaren.</li>
+    <li>Ange <strong>användarnamn</strong> och <strong>lösenord</strong>.</li>
+    <li>Klicka <strong>Logga in</strong>.</li>
+</ol>
+<p>Inaktiverade konton kan inte logga in. Kontakta administratören om du har problem.</p>
+<p>För att logga ut, klicka <strong>Logga ut</strong> i menyraden uppe till höger.</p>
+
+<hr>
+
+<h2 id="oversikt">Översikt</h2>
+<p>Efter inloggning visas en översiktssida med:</p>
+<ul>
+    <li><strong>Antal öppna ärenden</strong> — ärenden med status "Öppnat"</li>
+    <li><strong>Antal pågående ärenden</strong> — ärenden med status "Pågående"</li>
+    <li><strong>Antal avslutade ärenden</strong> — ärenden med status "Avslutat"</li>
+    <li><strong>Senaste ärenden</strong> — de 10 senast skapade ärendena</li>
+</ul>
+<p>Handläggare ser dessutom <strong>Mina ärenden</strong> — en lista över ärenden som är tilldelade dem och har status "Öppnat" eller "Pågående".</p>
+
+<hr>
+
+<h2 id="arenden">Ärenden</h2>
+
+<h3>Visa ärenden</h3>
+<p>Klicka <strong>Ärenden</strong> i menyn för att se alla ärenden. Listan visar 20 ärenden per sida och kan filtreras efter status via flikarna.</p>
+
+<h3>Skapa nytt ärende</h3>
+<p><em>Kräver rollen admin eller registrator.</em></p>
+<ol>
+    <li>Klicka <strong>Ärenden</strong> → <strong>Nytt ärende</strong>.</li>
+    <li>Fyll i formuläret:
+        <ul>
+            <li><strong>Prefix</strong> — prefix för diarienumret (standard: "DNR"). Numret genereras automatiskt, t.ex. <code>DNR-2026-0001</code>.</li>
+            <li><strong>Ärendemening</strong> — kort beskrivning av ärendet.</li>
+            <li><strong>Sekretess</strong> — kryssa i om ärendet omfattas av sekretess.</li>
+            <li><strong>Sekretessgrund</strong> — ange lagrum eller grund för sekretess (vid behov).</li>
+            <li><strong>Handläggare</strong> — välj en handläggare från listan (valfritt).</li>
+        </ul>
+    </li>
+    <li>Klicka <strong>Spara</strong>.</li>
+</ol>
+
+<h3>Redigera ärende</h3>
+<p><em>Kräver rollen admin eller registrator.</em></p>
+<ol>
+    <li>Öppna ärendet och klicka <strong>Redigera</strong>.</li>
+    <li>Ändra ärendemening, sekretess, sekretessgrund eller handläggare.</li>
+    <li>Klicka <strong>Spara</strong>.</li>
+</ol>
+
+<h3>Ändra status</h3>
+<p><em>Kräver rollen admin, registrator eller handläggare.</em></p>
+<p>Ärenden följer ett fastställt statusflöde:</p>
+<table class="table table-bordered">
+    <thead><tr><th>Från</th><th>Till</th></tr></thead>
+    <tbody>
+        <tr><td>Öppnat</td><td>Pågående</td></tr>
+        <tr><td>Pågående</td><td>Avslutat</td></tr>
+        <tr><td>Avslutat</td><td>Arkiverat eller Pågående</td></tr>
+        <tr><td>Arkiverat</td><td><em>(inga — slutstatus)</em></td></tr>
+    </tbody>
+</table>
+<p>Klicka på önskad status i ärendevyn för att genomföra övergången.</p>
+
+<h3>Ta bort ärende</h3>
+<p><em>Kräver rollen admin.</em></p>
+<p>Klicka <strong>Ta bort</strong> i ärendevyn. Ärendet tas bort mjukt (markeras som borttaget men finns kvar i databasen för spårbarhet).</p>
+
+<hr>
+
+<h2 id="handlingar">Handlingar och dokument</h2>
+<p>Handlingar kopplas till ett ärende och representerar inkommande, utgående eller upprättade dokument.</p>
+
+<h3>Registrera ny handling</h3>
+<p><em>Kräver rollen admin, registrator eller handläggare.</em></p>
+<ol>
+    <li>Öppna ärendet och klicka <strong>Ny handling</strong>.</li>
+    <li>Fyll i formuläret:
+        <ul>
+            <li><strong>Typ</strong> — välj <em>Inkommande</em>, <em>Utgående</em> eller <em>Upprättad</em>.</li>
+            <li><strong>Datum inkommen</strong> — datum då handlingen inkom (standard: dagens datum).</li>
+            <li><strong>Avsändare</strong> — vem handlingen kommer från (valfritt).</li>
+            <li><strong>Mottagare</strong> — vem handlingen skickas till (valfritt).</li>
+            <li><strong>Beskrivning</strong> — beskrivning av handlingen.</li>
+            <li><strong>Sekretess</strong> — kryssa i vid behov.</li>
+            <li><strong>Fil</strong> — ladda upp en fil (valfritt, max 50 MB).</li>
+        </ul>
+    </li>
+    <li>Klicka <strong>Spara</strong>.</li>
+</ol>
+
+<h3>Visa handling</h3>
+<p>Klicka på en handling i ärendevyn för att se dess information och alla uppladdade versioner.</p>
+
+<h3>Ladda upp ny version</h3>
+<p><em>Kräver rollen admin, registrator eller handläggare.</em></p>
+<ol>
+    <li>Öppna handlingen och klicka <strong>Ny version</strong>.</li>
+    <li>Välj fil och ange en valfri kommentar.</li>
+    <li>Klicka <strong>Ladda upp</strong>.</li>
+</ol>
+<p>Versionsnumret ökas automatiskt. Alla tidigare versioner finns kvar och kan laddas ner.</p>
+
+<h3>Ladda ner dokument</h3>
+<p>Klicka på filnamnet eller nedladdningsknappen vid önskad version.</p>
+
+<h3>Ta bort handling</h3>
+<p><em>Kräver rollen admin eller registrator.</em></p>
+<p>Klicka <strong>Ta bort</strong> i handlingsvyn. Handlingen tas bort mjukt.</p>
+
+<hr>
+
+<h2 id="sok">Sök</h2>
+<p>Klicka <strong>Sök</strong> i menyn. Alla inloggade användare kan söka.</p>
+<p>Tillgängliga sökfält (alla valfria, kombinera fritt):</p>
+<table class="table table-bordered">
+    <thead><tr><th>Fält</th><th>Beskrivning</th></tr></thead>
+    <tbody>
+        <tr><td><strong>Diarienummer</strong></td><td>Sök på hela eller delar av diarienumret</td></tr>
+        <tr><td><strong>Ärendemening</strong></td><td>Fritext i ärendebeskrivningen</td></tr>
+        <tr><td><strong>Status</strong></td><td>Filtrera på status (Öppnat, Pågående, Avslutat, Arkiverat)</td></tr>
+        <tr><td><strong>Från datum</strong></td><td>Ärenden skapade från och med detta datum</td></tr>
+        <tr><td><strong>Till datum</strong></td><td>Ärenden skapade till och med detta datum</td></tr>
+        <tr><td><strong>Avsändare</strong></td><td>Sök bland avsändare i kopplade handlingar</td></tr>
+    </tbody>
+</table>
+<p>Fyll i minst ett fält och klicka <strong>Sök</strong>. Resultatet visar maximalt 100 träffar, sorterade med de nyaste först.</p>
+
+<hr>
+
+<h2 id="arkiv">Arkiv</h2>
+<p><em>Kräver rollen admin eller arkivarie.</em></p>
+<p>Klicka <strong>Arkiv</strong> i menyn för att se alla avslutade och arkiverade ärenden.</p>
+
+<h3>Exportera ärende</h3>
+<ol>
+    <li>Klicka <strong>Exportera</strong> bredvid önskat ärende.</li>
+    <li>En JSON-fil laddas ner med ärendets fullständiga information:
+        <ul>
+            <li>Ärendeuppgifter (diarienummer, mening, status, sekretess)</li>
+            <li>Alla handlingar med versionshistorik</li>
+            <li>Fullständig granskningslogg</li>
+        </ul>
+    </li>
+</ol>
+<p>Filnamnet följer formatet <code>DNR-2026-0001.json</code>. Exporten innehåller inte fildata (binärfiler) utan metadata om dokumentversioner.</p>
+
+<hr>
+
+<h2 id="administration">Administration</h2>
+<p><em>Kräver rollen admin.</em></p>
+<p>Administrationsmenyn nås via <strong>Admin</strong> i menyraden.</p>
+
+<h3>Användare</h3>
+<p><strong>Visa användare</strong> — lista över alla användare med namn, roll och status.</p>
+<p><strong>Skapa ny användare:</strong></p>
+<ol>
+    <li>Klicka <strong>Ny användare</strong>.</li>
+    <li>Fyll i:
+        <ul>
+            <li><strong>Användarnamn</strong> — unikt inloggningsnamn.</li>
+            <li><strong>Fullständigt namn</strong> — visningsnamn.</li>
+            <li><strong>E-post</strong> — valfritt.</li>
+            <li><strong>Roll</strong> — Administratör, Registrator, Handläggare eller Arkivarie.</li>
+            <li><strong>Lösenord</strong> — initialt lösenord.</li>
+        </ul>
+    </li>
+    <li>Klicka <strong>Spara</strong>.</li>
+</ol>
+<p><strong>Redigera användare:</strong></p>
+<ol>
+    <li>Klicka på en användare i listan.</li>
+    <li>Ändra namn, e-post, roll eller aktiv-status.</li>
+    <li>Lämna lösenordsfältet tomt för att behålla nuvarande lösenord, eller fyll i ett nytt.</li>
+    <li>Klicka <strong>Spara</strong>.</li>
+</ol>
+<p>Avaktiverade användare kan inte logga in men finns kvar i systemet.</p>
+
+<h3>Nummerserier</h3>
+<p>Visar alla genererade diarienummerserier med prefix, år och senaste nummer. Denna vy är enbart för insyn — numren genereras automatiskt vid skapande av nya ärenden.</p>
+
+<h3>Granskningslogg</h3>
+<p>Visar alla loggade händelser i systemet (50 per sida), sorterade med de senaste först. Varje post innehåller:</p>
+<ul>
+    <li><strong>Händelse</strong> — vad som gjordes (t.ex. skapande, redigering, statusändring)</li>
+    <li><strong>Användare</strong> — vem som utförde handlingen</li>
+    <li><strong>Måltyp och ID</strong> — vilket objekt som påverkades</li>
+    <li><strong>Detaljer</strong> — ytterligare information i JSON-format</li>
+    <li><strong>Tidpunkt</strong> — datum och tid</li>
+    <li><strong>IP-adress</strong> — varifrån handlingen utfördes</li>
+</ul>
+
+<hr>
+
+<h2 id="roller">Roller och behörigheter</h2>
+<div class="table-responsive">
+<table class="table table-bordered">
+    <thead>
+        <tr>
+            <th>Funktion</th>
+            <th class="text-center">Admin</th>
+            <th class="text-center">Registrator</th>
+            <th class="text-center">Handläggare</th>
+            <th class="text-center">Arkivarie</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr><td>Logga in och se översikt</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td></tr>
+        <tr><td>Visa ärenden</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td></tr>
+        <tr><td>Skapa ärende</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td></tr>
+        <tr><td>Redigera ärende</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td></tr>
+        <tr><td>Ändra status</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center"></td></tr>
+        <tr><td>Ta bort ärende</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td><td class="text-center"></td></tr>
+        <tr><td>Registrera handling</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center"></td></tr>
+        <tr><td>Visa och ladda ner handling</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td></tr>
+        <tr><td>Ladda upp ny version</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center"></td></tr>
+        <tr><td>Ta bort handling</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td></tr>
+        <tr><td>Söka</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td><td class="text-center">&#10003;</td></tr>
+        <tr><td>Visa arkiv och exportera</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td><td class="text-center">&#10003;</td></tr>
+        <tr><td>Hantera användare</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td><td class="text-center"></td></tr>
+        <tr><td>Visa nummerserier</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td><td class="text-center"></td></tr>
+        <tr><td>Visa granskningslogg</td><td class="text-center">&#10003;</td><td class="text-center"></td><td class="text-center"></td><td class="text-center"></td></tr>
+    </tbody>
+</table>
+</div>
+
+</div>
+</div>
+{% endblock %}

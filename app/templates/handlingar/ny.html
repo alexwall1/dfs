@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Ny handling{% endblock %}
+{% block content %}
+<h2>Ny handling till {{ arende.diarienummer }}</h2>
+
+<form method="POST" enctype="multipart/form-data" class="col-md-8">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+        <label for="typ" class="form-label">Typ *</label>
+        <select class="form-select" id="typ" name="typ" required>
+            <option value="inkommande">Inkommande</option>
+            <option value="utgaende">Utgående</option>
+            <option value="upprattad">Upprättad</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="beskrivning" class="form-label">Beskrivning *</label>
+        <input type="text" class="form-control" id="beskrivning" name="beskrivning" required maxlength="500">
+    </div>
+    <div class="mb-3">
+        <label for="datum_inkom" class="form-label">Datum</label>
+        <input type="date" class="form-control" id="datum_inkom" name="datum_inkom" style="max-width: 200px;">
+    </div>
+    <div class="mb-3">
+        <label for="avsandare" class="form-label">Avsändare</label>
+        <input type="text" class="form-control" id="avsandare" name="avsandare" maxlength="300">
+    </div>
+    <div class="mb-3">
+        <label for="mottagare" class="form-label">Mottagare</label>
+        <input type="text" class="form-control" id="mottagare" name="mottagare" maxlength="300">
+    </div>
+    <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" id="sekretess" name="sekretess">
+        <label class="form-check-label" for="sekretess">Sekretess</label>
+    </div>
+    <div class="mb-3">
+        <label for="fil" class="form-label">Bifoga fil</label>
+        <input type="file" class="form-control" id="fil" name="fil">
+    </div>
+    <button type="submit" class="btn btn-primary">Registrera</button>
+    <a href="{{ url_for('arenden.visa', arende_id=arende.id) }}" class="btn btn-secondary">Avbryt</a>
+</form>
+{% endblock %}

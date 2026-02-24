@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Nummerserier{% endblock %}
+{% block content %}
+<h2>Nummerserier</h2>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Prefix</th>
+            <th>År</th>
+            <th>Senaste nummer</th>
+            <th>Senaste diarienummer</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in serier %}
+        <tr>
+            <td>{{ s.prefix }}</td>
+            <td>{{ s.year }}</td>
+            <td>{{ s.current_number }}</td>
+            <td>{{ s.prefix }}-{{ s.year }}-{{ '%04d' % s.current_number }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted">Inga nummerserier skapade ännu.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="text-muted">Nummerserier skapas automatiskt när ärenden registreras.</p>
+{% endblock %}

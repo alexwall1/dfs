@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Redigera {{ arende.diarienummer }}{% endblock %}
+{% block content %}
+<h2>Redigera {{ arende.diarienummer }}</h2>
+
+<form method="POST" class="col-md-8">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+        <label for="arende_mening" class="form-label">Ärendemening *</label>
+        <input type="text" class="form-control" id="arende_mening" name="arende_mening"
+               value="{{ arende.arende_mening }}" required maxlength="500">
+    </div>
+    <div class="mb-3">
+        <label for="handlaggare_id" class="form-label">Handläggare</label>
+        <select class="form-select" id="handlaggare_id" name="handlaggare_id">
+            <option value="">- Ingen tilldelad -</option>
+            {% for h in handlaggare %}
+            <option value="{{ h.id }}" {{ 'selected' if arende.handlaggare_id == h.id }}>
+                {{ h.full_name }} ({{ h.role_label }})
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="mb-3 form-check">
+        <input type="checkbox" class="form-check-input" id="sekretess" name="sekretess"
+               {{ 'checked' if arende.sekretess }}>
+        <label class="form-check-label" for="sekretess">Sekretess</label>
+    </div>
+    <div class="mb-3" id="sekretess_grund_wrap" style="{{ '' if arende.sekretess else 'display:none;' }}">
+        <label for="sekretess_grund" class="form-label">Sekretessgrund</label>
+        <input type="text" class="form-control" id="sekretess_grund" name="sekretess_grund"
+               value="{{ arende.sekretess_grund or '' }}" maxlength="500">
+    </div>
+    <button type="submit" class="btn btn-primary">Spara</button>
+    <a href="{{ url_for('arenden.visa', arende_id=arende.id) }}" class="btn btn-secondary">Avbryt</a>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('sekretess').addEventListener('change', function() {
+    document.getElementById('sekretess_grund_wrap').style.display = this.checked ? 'block' : 'none';
+});
+</script>
+{% endblock %}
