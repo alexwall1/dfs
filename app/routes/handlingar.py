@@ -15,12 +15,15 @@ from flask import (
 )
 from flask_login import login_required, current_user
 
+from flask import current_app
+
 from app import db
 from app.models import Arende, Handling, DocumentVersion, log_action
 from app.auth import role_required
 
-# Maximal filstorlek per uppladdad fil (oberoende av global MAX_CONTENT_LENGTH).
-MAX_FIL_STORLEK_BYTES = 20 * 1024 * 1024  # 20 MB
+
+def _max_fil_storlek_bytes() -> int:
+    return current_app.config["MAX_FIL_STORLEK_MB"] * 1024 * 1024
 
 # Tillåtna filändelser mappade till godkända MIME-typer.
 # DOCX och XLSX är ZIP-baserade format — äldre libmagic-versioner
@@ -63,8 +66,9 @@ def _validera_fil(fil) -> tuple[str, bytes, str]:
         )
 
     fildata = fil.read()
-    if len(fildata) > MAX_FIL_STORLEK_BYTES:
-        max_mb = MAX_FIL_STORLEK_BYTES // (1024 * 1024)
+    max_bytes = _max_fil_storlek_bytes()
+    if len(fildata) > max_bytes:
+        max_mb = max_bytes // (1024 * 1024)
         raise ValueError(f"Filen är för stor. Maximal filstorlek är {max_mb} MB.")
 
     detekterad_mime = magic.from_buffer(fildata, mime=True)

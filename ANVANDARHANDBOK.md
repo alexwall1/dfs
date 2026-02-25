@@ -119,7 +119,7 @@ Handlingar kopplas till ett ärende och representerar inkommande, utgående elle
    - **Mottagare** — vem handlingen skickas till (valfritt).
    - **Beskrivning** — beskrivning av handlingen.
    - **Sekretess** — kryssa i vid behov.
-   - **Fil** — ladda upp en fil (valfritt, max 50 MB).
+   - **Fil** — ladda upp en fil (valfritt, max 20 MB).
 3. Klicka **Spara**.
 
 ### Visa handling

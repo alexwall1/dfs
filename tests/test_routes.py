@@ -666,26 +666,30 @@ class TestHandlingarRoutes:
 
 
 class TestFilstorlekskontroll:
-    def test_fil_over_max_avvisas(self):
-        from app.routes.handlingar import _validera_fil, MAX_FIL_STORLEK_BYTES
+    def test_fil_over_max_avvisas(self, app):
+        from app.routes.handlingar import _validera_fil
         import types
 
-        stor_data = b"X" * (MAX_FIL_STORLEK_BYTES + 1)
+        max_bytes = app.config["MAX_FIL_STORLEK_MB"] * 1024 * 1024
+        stor_data = b"X" * (max_bytes + 1)
         fake_fil = types.SimpleNamespace(filename="stor.pdf", read=lambda: stor_data)
 
-        with pytest.raises(ValueError, match="för stor"):
-            _validera_fil(fake_fil)
+        with app.app_context():
+            with pytest.raises(ValueError, match="för stor"):
+                _validera_fil(fake_fil)
 
-    def test_fil_exakt_pa_gransen_godkands(self):
-        from app.routes.handlingar import _validera_fil, MAX_FIL_STORLEK_BYTES
+    def test_fil_exakt_pa_gransen_godkands(self, app):
+        from app.routes.handlingar import _validera_fil
         import types
 
-        exakt_data = b"X" * MAX_FIL_STORLEK_BYTES
+        max_bytes = app.config["MAX_FIL_STORLEK_MB"] * 1024 * 1024
+        exakt_data = b"X" * max_bytes
         fake_fil = types.SimpleNamespace(filename="exakt.pdf", read=lambda: exakt_data)
 
-        with patch(MOCK_MAGIC, return_value="application/pdf"):
-            filnamn, fildata, mime = _validera_fil(fake_fil)
-        assert len(fildata) == MAX_FIL_STORLEK_BYTES
+        with app.app_context():
+            with patch(MOCK_MAGIC, return_value="application/pdf"):
+                filnamn, fildata, mime = _validera_fil(fake_fil)
+        assert len(fildata) == max_bytes
 
     def test_liten_fil_godkands(self):
         from app.routes.handlingar import _validera_fil
@@ -698,14 +702,15 @@ class TestFilstorlekskontroll:
         assert fildata == b"PDF-data"
 
     def test_stor_fil_via_route_ger_felmeddelande(self, client, db):
-        from app.routes.handlingar import MAX_FIL_STORLEK_BYTES
+        from flask import current_app
 
+        max_bytes = current_app.config["MAX_FIL_STORLEK_MB"] * 1024 * 1024
         user = skapa_user(db, username="reg_stor", role="registrator")
         arende = _skapa_arende(db, user)
         db.session.commit()
         logga_in(client, "reg_stor")
 
-        stor_data = b"X" * (MAX_FIL_STORLEK_BYTES + 1)
+        stor_data = b"X" * (max_bytes + 1)
         data = {
             "typ": "inkommande",
             "beskrivning": "Stor fil",

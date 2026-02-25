@@ -40,7 +40,10 @@ class Config:
     SECRET_KEY = _las_hemlighet("SECRET_KEY", "secret_key") or secrets.token_hex(32)
     SQLALCHEMY_DATABASE_URI = _bygg_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50 MB upload limit
+    MAX_FIL_STORLEK_MB = int(os.environ.get("MAX_FIL_STORLEK_MB", "20"))
+    # Sätt Flask:s globala gräns lite högre så att applikationens egen validering
+    # alltid hinner köra och kan visa ett användarvänligt felmeddelande.
+    MAX_CONTENT_LENGTH = (MAX_FIL_STORLEK_MB + 1) * 1024 * 1024
 
     SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
     SESSION_COOKIE_HTTPONLY = True
