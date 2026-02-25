@@ -102,15 +102,15 @@ class Arende(db.Model):
         return self.STATUS_FLOW.get(self.status, [])
 
 
-handling_typ = db.Table(
-    "handling_typ",
+handling_kategori = db.Table(
+    "handling_kategori",
     db.Column("handling_id", db.Integer, db.ForeignKey("handlingar.id"), primary_key=True),
-    db.Column("typ_id", db.Integer, db.ForeignKey("typer_av_handling.id"), primary_key=True),
+    db.Column("kategori_id", db.Integer, db.ForeignKey("kategorier.id"), primary_key=True),
 )
 
 
-class TypAvHandling(db.Model):
-    __tablename__ = "typer_av_handling"
+class Kategori(db.Model):
+    __tablename__ = "kategorier"
     id = db.Column(db.Integer, primary_key=True)
     namn = db.Column(db.String(100), unique=True, nullable=False)
 
@@ -135,7 +135,7 @@ class Handling(db.Model):
     deleted = db.Column(db.Boolean, default=False)
 
     skapare = db.relationship("User", foreign_keys=[skapad_av])
-    typer = db.relationship("TypAvHandling", secondary="handling_typ", lazy="dynamic")
+    kategorier = db.relationship("Kategori", secondary="handling_kategori", lazy="dynamic")
     versioner = db.relationship(
         "DocumentVersion",
         backref="handling",

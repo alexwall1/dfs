@@ -36,6 +36,19 @@
             <input type="text" class="form-control" name="avsandare" value="{{ q.get('avsandare', '') }}">
         </div>
         <div class="col-md-3">
+            <label class="form-label">Beskrivning (handling)</label>
+            <input type="text" class="form-control" name="beskrivning" value="{{ q.get('beskrivning', '') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Kategori</label>
+            <select class="form-select" name="typ_handling">
+                <option value="">Alla</option>
+                {% for k in kategorier %}
+                <option value="{{ k.id }}" {{ 'selected' if q.get('typ_handling') == k.id|string }}>{{ k.namn }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
             <button type="submit" class="btn btn-primary mt-4">
                 <i class="bi bi-search"></i> Sök
             </button>

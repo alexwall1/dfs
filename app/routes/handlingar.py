@@ -18,7 +18,7 @@ from flask_login import login_required, current_user
 from flask import current_app
 
 from app import db
-from app.models import Arende, Handling, DocumentVersion, TypAvHandling, log_action
+from app.models import Arende, Handling, DocumentVersion, Kategori, log_action
 from app.auth import role_required
 
 
@@ -111,8 +111,8 @@ def ny(arende_id):
                 fil_result = _validera_fil(fil)
             except ValueError as e:
                 flash(str(e), "danger")
-                typer = TypAvHandling.query.order_by(TypAvHandling.namn).all()
-                return render_template("handlingar/ny.html", arende=arende, typer=typer)
+                kategorier = Kategori.query.order_by(Kategori.namn).all()
+                return render_template("handlingar/ny.html", arende=arende, kategorier=kategorier)
 
         datum_str = request.form.get("datum_inkom")
         datum_inkom = date.fromisoformat(datum_str) if datum_str else date.today()
@@ -130,12 +130,12 @@ def ny(arende_id):
         db.session.add(handling)
         db.session.flush()
 
-        typ_ids = request.form.getlist("typer")
-        if typ_ids:
-            valda_typer = TypAvHandling.query.filter(
-                TypAvHandling.id.in_([int(t) for t in typ_ids if t.isdigit()])
+        kategori_ids = request.form.getlist("kategorier")
+        if kategori_ids:
+            valda_kategorier = Kategori.query.filter(
+                Kategori.id.in_([int(k) for k in kategori_ids if k.isdigit()])
             ).all()
-            handling.typer = valda_typer
+            handling.kategorier = valda_kategorier
 
         if fil_result:
             filnamn, fildata, mime = fil_result
@@ -161,8 +161,8 @@ def ny(arende_id):
         flash("Handling registrerad.", "success")
         return redirect(url_for("arenden.visa", arende_id=arende.id))
 
-    typer = TypAvHandling.query.order_by(TypAvHandling.namn).all()
-    return render_template("handlingar/ny.html", arende=arende, typer=typer)
+    kategorier = Kategori.query.order_by(Kategori.namn).all()
+    return render_template("handlingar/ny.html", arende=arende, kategorier=kategorier)
 
 
 @handlingar_bp.route("/<int:handling_id>")

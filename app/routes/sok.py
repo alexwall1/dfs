@@ -3,7 +3,7 @@ from datetime import date
 from flask import Blueprint, render_template, request, flash
 from flask_login import login_required
 
-from app.models import Arende, Handling
+from app.models import Arende, Handling, Kategori, handling_kategori
 
 sok_bp = Blueprint("sok", __name__, url_prefix="/sok")
 
@@ -29,7 +29,7 @@ def sok():
     results = None
     q = request.args
 
-    if any(q.get(k) for k in ("diarienummer", "mening", "status", "fran", "till", "avsandare")):
+    if any(q.get(k) for k in ("diarienummer", "mening", "status", "fran", "till", "avsandare", "beskrivning", "typ_handling")):
         query = Arende.query.filter_by(deleted=False)
 
         if q.get("diarienummer"):
@@ -72,6 +72,36 @@ def sok():
             )
             query = query.filter(Arende.id.in_(arende_ids))
 
+        if q.get("beskrivning"):
+            arende_ids = (
+                Handling.query.filter(
+                    Handling.beskrivning.ilike(f"%{_trunkera(q['beskrivning'])}%"),
+                    Handling.deleted == False,
+                )
+                .with_entities(Handling.arende_id)
+                .distinct()
+            )
+            query = query.filter(Arende.id.in_(arende_ids))
+
+        if q.get("typ_handling"):
+            try:
+                kategori_id = int(q["typ_handling"])
+            except (ValueError, TypeError):
+                kategori_id = None
+            if not kategori_id:
+                flash("Ogiltigt värde för 'Kategori'. Filtret ignorerades.", "warning")
+            else:
+                arende_ids = (
+                    Handling.query.join(handling_kategori).filter(
+                        handling_kategori.c.kategori_id == kategori_id,
+                        Handling.deleted == False,
+                    )
+                    .with_entities(Handling.arende_id)
+                    .distinct()
+                )
+                query = query.filter(Arende.id.in_(arende_ids))
+
         results = query.order_by(Arende.skapad_datum.desc()).limit(100).all()
 
-    return render_template("sok.html", results=results, q=q)
+    kategorier = Kategori.query.order_by(Kategori.namn).all()
+    return render_template("sok.html", results=results, q=q, kategorier=kategorier)

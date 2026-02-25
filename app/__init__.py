@@ -1,11 +1,13 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 db = SQLAlchemy()
+migrate = Migrate()
 login_manager = LoginManager()
 csrf = CSRFProtect()
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
@@ -23,6 +25,7 @@ def create_app():
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=proxy_count)
 
     db.init_app(app)
+    migrate.init_app(app, db)
     login_manager.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
@@ -62,7 +65,6 @@ def create_app():
         return response
 
     with app.app_context():
-        db.create_all()
         _registrera_fragetimeout(app)
 
     return app

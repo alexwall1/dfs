@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+echo "Running database migrations..."
+flask db upgrade
+
 echo "Running seed script..."
 python seed.py
 

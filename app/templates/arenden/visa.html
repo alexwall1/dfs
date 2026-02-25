@@ -73,7 +73,7 @@
             <th>#</th>
             <th>Typ</th>
             <th>Beskrivning</th>
-            <th>Typ av handling</th>
+            <th>Kategori</th>
             <th>Datum</th>
             <th>Avsändare/Mottagare</th>
         </tr>
@@ -85,8 +85,8 @@
             <td>{{ h.typ_label }}{% if h.sekretess %} <i class="bi bi-lock-fill text-danger"></i>{% endif %}</td>
             <td>{{ h.beskrivning }}</td>
             <td>
-                {% for t in h.typer %}
-                <span class="badge bg-secondary">{{ t.namn }}</span>
+                {% for k in h.kategorier %}
+                <span class="badge bg-secondary">{{ k.namn }}</span>
                 {% else %}-{% endfor %}
             </td>
             <td>{{ h.datum_inkom.strftime('%Y-%m-%d') if h.datum_inkom else '-' }}</td>

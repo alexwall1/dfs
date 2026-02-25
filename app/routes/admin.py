@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import current_user
 
 from app import db
-from app.models import User, AuditLog, Nummerserie, TypAvHandling, log_action, validera_losenord
+from app.models import User, AuditLog, Nummerserie, Kategori, log_action, validera_losenord
 from app.auth import role_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -147,50 +147,50 @@ def nummerserier():
     return render_template("admin/nummerserier.html", serier=serier)
 
 
-@admin_bp.route("/typer-av-handling")
+@admin_bp.route("/kategorier")
 @role_required("admin")
-def typer_av_handling():
-    typer = TypAvHandling.query.order_by(TypAvHandling.namn).all()
-    return render_template("admin/typer_av_handling.html", typer=typer)
+def kategorier():
+    kategorier_lista = Kategori.query.order_by(Kategori.namn).all()
+    return render_template("admin/kategorier.html", kategorier=kategorier_lista)
 
 
-@admin_bp.route("/typer-av-handling/ny", methods=["POST"])
+@admin_bp.route("/kategorier/ny", methods=["POST"])
 @role_required("admin")
-def ny_typ_av_handling():
+def ny_kategori():
     namn = request.form.get("namn", "").strip()
     if not namn:
         flash("Namn får inte vara tomt.", "danger")
-        return redirect(url_for("admin.typer_av_handling"))
-    if TypAvHandling.query.filter_by(namn=namn).first():
-        flash(f"Typen \"{namn}\" finns redan.", "danger")
-        return redirect(url_for("admin.typer_av_handling"))
-    typ = TypAvHandling(namn=namn)
-    db.session.add(typ)
+        return redirect(url_for("admin.kategorier"))
+    if Kategori.query.filter_by(namn=namn).first():
+        flash(f"Kategorin \"{namn}\" finns redan.", "danger")
+        return redirect(url_for("admin.kategorier"))
+    kategori = Kategori(namn=namn)
+    db.session.add(kategori)
     db.session.flush()
-    log_action(current_user.id, "skapa_typ_av_handling", "TypAvHandling", typ.id, {"namn": namn})
+    log_action(current_user.id, "skapa_kategori", "Kategori", kategori.id, {"namn": namn})
     db.session.commit()
-    flash(f"Typ \"{namn}\" skapad.", "success")
-    return redirect(url_for("admin.typer_av_handling"))
+    flash(f"Kategorin \"{namn}\" skapad.", "success")
+    return redirect(url_for("admin.kategorier"))
 
 
-@admin_bp.route("/typer-av-handling/<int:typ_id>/ta-bort", methods=["POST"])
+@admin_bp.route("/kategorier/<int:kategori_id>/ta-bort", methods=["POST"])
 @role_required("admin")
-def ta_bort_typ_av_handling(typ_id):
+def ta_bort_kategori(kategori_id):
     from app.models import Handling
-    typ = TypAvHandling.query.get_or_404(typ_id)
+    kategori = Kategori.query.get_or_404(kategori_id)
     anvands = (
         Handling.query
-        .filter(Handling.deleted == False, Handling.typer.any(TypAvHandling.id == typ_id))
+        .filter(Handling.deleted == False, Handling.kategorier.any(Kategori.id == kategori_id))
         .count()
     )
     if anvands:
-        flash(f"Kan inte ta bort \"{typ.namn}\" — används av {anvands} aktiv(a) handling(ar).", "danger")
-        return redirect(url_for("admin.typer_av_handling"))
-    log_action(current_user.id, "ta_bort_typ_av_handling", "TypAvHandling", typ.id, {"namn": typ.namn})
-    db.session.delete(typ)
+        flash(f"Kan inte ta bort \"{kategori.namn}\" — används av {anvands} aktiv(a) handling(ar).", "danger")
+        return redirect(url_for("admin.kategorier"))
+    log_action(current_user.id, "ta_bort_kategori", "Kategori", kategori.id, {"namn": kategori.namn})
+    db.session.delete(kategori)
     db.session.commit()
-    flash(f"Typ \"{typ.namn}\" borttagen.", "success")
-    return redirect(url_for("admin.typer_av_handling"))
+    flash(f"Kategorin \"{kategori.namn}\" borttagen.", "success")
+    return redirect(url_for("admin.kategorier"))
 
 
 @admin_bp.route("/logg")

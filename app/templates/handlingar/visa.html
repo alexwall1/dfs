@@ -18,12 +18,12 @@
             <tr><th>Mottagare</th><td>{{ handling.mottagare or '-' }}</td></tr>
             <tr><th>Sekretess</th><td>{{ 'Ja' if handling.sekretess else 'Nej' }}</td></tr>
             <tr>
-                <th>Typ av handling</th>
+                <th>Kategori</th>
                 <td>
-                    {% set typer_lista = handling.typer.all() %}
-                    {% if typer_lista %}
-                        {% for t in typer_lista %}
-                        <span class="badge bg-secondary">{{ t.namn }}</span>
+                    {% set kategorier_lista = handling.kategorier.all() %}
+                    {% if kategorier_lista %}
+                        {% for k in kategorier_lista %}
+                        <span class="badge bg-secondary">{{ k.namn }}</span>
                         {% endfor %}
                     {% else %}
                         -

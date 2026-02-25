@@ -21,6 +21,8 @@ def app():
         WTF_CSRF_ENABLED=False,
         SECRET_KEY="test-secret",
     )
+    with app.app_context():
+        _db.create_all()
     yield app
 
 

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Kategorier{% endblock %}
+{% block content %}
+<h2>Kategorier</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Namn</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for k in kategorier %}
+                <tr>
+                    <td>{{ k.namn }}</td>
+                    <td>
+                        <form method="POST"
+                              action="{{ url_for('admin.ta_bort_kategori', kategori_id=k.id) }}"
+                              onsubmit="return confirm('Ta bort kategorin &quot;{{ k.namn }}&quot;?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-trash"></i> Ta bort
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="2" class="text-center text-muted">Inga kategorier definierade.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="col-md-6">
+    <h5>Lägg till ny kategori</h5>
+    <form method="POST" action="{{ url_for('admin.ny_kategori') }}" class="d-flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" class="form-control" name="namn" placeholder="Namn" maxlength="100" required>
+        <button type="submit" class="btn btn-primary">Lägg till</button>
+    </form>
+</div>
+{% endblock %}

@@ -11,7 +11,7 @@ from app.models import (
     DocumentVersion,
     AuditLog,
     Nummerserie,
-    TypAvHandling,
+    Kategori,
     log_action,
     validera_losenord,
 )
@@ -526,74 +526,74 @@ class TestNummerserie:
             db.session.flush()
 
 
-# ── TypAvHandling ─────────────────────────────────────────────────────
+# ── Kategori ─────────────────────────────────────────────────────
 
 
-class TestTypAvHandling:
-    def test_skapa_typ(self, db):
-        typ = TypAvHandling(namn="Protokoll")
-        db.session.add(typ)
+class TestKategori:
+    def test_skapa_kategori(self, db):
+        kategori = Kategori(namn="Protokoll")
+        db.session.add(kategori)
         db.session.flush()
-        assert typ.id is not None
-        assert typ.namn == "Protokoll"
+        assert kategori.id is not None
+        assert kategori.namn == "Protokoll"
 
     def test_namn_unikt(self, db):
-        db.session.add(TypAvHandling(namn="Protokoll"))
+        db.session.add(Kategori(namn="Protokoll"))
         db.session.flush()
-        db.session.add(TypAvHandling(namn="Protokoll"))
+        db.session.add(Kategori(namn="Protokoll"))
         with pytest.raises(Exception):
             db.session.flush()
 
-    def test_handling_typer_relation_tom_default(self, db):
+    def test_handling_kategorier_relation_tom_default(self, db):
         user = _skapa_user(db)
         arende = _skapa_arende(db, user)
         handling = _skapa_handling(db, arende, user)
-        assert handling.typer.count() == 0
+        assert handling.kategorier.count() == 0
 
-    def test_tilldela_en_typ(self, db):
-        user = _skapa_user(db)
-        arende = _skapa_arende(db, user)
-        handling = _skapa_handling(db, arende, user)
-
-        typ = TypAvHandling(namn="Faktura")
-        db.session.add(typ)
-        db.session.flush()
-
-        handling.typer = [typ]
-        db.session.flush()
-
-        assert handling.typer.count() == 1
-        assert handling.typer.first().namn == "Faktura"
-
-    def test_tilldela_flera_typer(self, db):
+    def test_tilldela_en_kategori(self, db):
         user = _skapa_user(db)
         arende = _skapa_arende(db, user)
         handling = _skapa_handling(db, arende, user)
 
-        t1 = TypAvHandling(namn="Faktura")
-        t2 = TypAvHandling(namn="Avtal")
-        db.session.add_all([t1, t2])
+        kategori = Kategori(namn="Faktura")
+        db.session.add(kategori)
         db.session.flush()
 
-        handling.typer = [t1, t2]
+        handling.kategorier = [kategori]
         db.session.flush()
 
-        namn = {t.namn for t in handling.typer.all()}
+        assert handling.kategorier.count() == 1
+        assert handling.kategorier.first().namn == "Faktura"
+
+    def test_tilldela_flera_kategorier(self, db):
+        user = _skapa_user(db)
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+
+        k1 = Kategori(namn="Faktura")
+        k2 = Kategori(namn="Avtal")
+        db.session.add_all([k1, k2])
+        db.session.flush()
+
+        handling.kategorier = [k1, k2]
+        db.session.flush()
+
+        namn = {k.namn for k in handling.kategorier.all()}
         assert namn == {"Faktura", "Avtal"}
 
-    def test_typ_delas_av_flera_handlingar(self, db):
+    def test_kategori_delas_av_flera_handlingar(self, db):
         user = _skapa_user(db)
         arende = _skapa_arende(db, user)
         h1 = _skapa_handling(db, arende, user, beskrivning="H1")
         h2 = _skapa_handling(db, arende, user, beskrivning="H2")
 
-        typ = TypAvHandling(namn="Remiss")
-        db.session.add(typ)
+        kategori = Kategori(namn="Remiss")
+        db.session.add(kategori)
         db.session.flush()
 
-        h1.typer = [typ]
-        h2.typer = [typ]
+        h1.kategorier = [kategori]
+        h2.kategorier = [kategori]
         db.session.flush()
 
-        assert h1.typer.first().id == typ.id
-        assert h2.typer.first().id == typ.id
+        assert h1.kategorier.first().id == kategori.id
+        assert h2.kategorier.first().id == kategori.id
