@@ -17,6 +17,19 @@
             <tr><th>Avsändare</th><td>{{ handling.avsandare or '-' }}</td></tr>
             <tr><th>Mottagare</th><td>{{ handling.mottagare or '-' }}</td></tr>
             <tr><th>Sekretess</th><td>{{ 'Ja' if handling.sekretess else 'Nej' }}</td></tr>
+            <tr>
+                <th>Typ av handling</th>
+                <td>
+                    {% set typer_lista = handling.typer.all() %}
+                    {% if typer_lista %}
+                        {% for t in typer_lista %}
+                        <span class="badge bg-secondary">{{ t.namn }}</span>
+                        {% endfor %}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
             <tr><th>Registrerad av</th><td>{{ handling.skapare.full_name if handling.skapare else '-' }}</td></tr>
             <tr><th>Registrerad</th><td>{{ handling.skapad_datum.strftime('%Y-%m-%d %H:%M') }}</td></tr>
         </table>

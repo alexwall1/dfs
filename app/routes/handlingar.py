@@ -18,7 +18,7 @@ from flask_login import login_required, current_user
 from flask import current_app
 
 from app import db
-from app.models import Arende, Handling, DocumentVersion, log_action
+from app.models import Arende, Handling, DocumentVersion, TypAvHandling, log_action
 from app.auth import role_required
 
 
@@ -111,7 +111,8 @@ def ny(arende_id):
                 fil_result = _validera_fil(fil)
             except ValueError as e:
                 flash(str(e), "danger")
-                return render_template("handlingar/ny.html", arende=arende)
+                typer = TypAvHandling.query.order_by(TypAvHandling.namn).all()
+                return render_template("handlingar/ny.html", arende=arende, typer=typer)
 
         datum_str = request.form.get("datum_inkom")
         datum_inkom = date.fromisoformat(datum_str) if datum_str else date.today()
@@ -128,6 +129,13 @@ def ny(arende_id):
         )
         db.session.add(handling)
         db.session.flush()
+
+        typ_ids = request.form.getlist("typer")
+        if typ_ids:
+            valda_typer = TypAvHandling.query.filter(
+                TypAvHandling.id.in_([int(t) for t in typ_ids if t.isdigit()])
+            ).all()
+            handling.typer = valda_typer
 
         if fil_result:
             filnamn, fildata, mime = fil_result
@@ -153,7 +161,8 @@ def ny(arende_id):
         flash("Handling registrerad.", "success")
         return redirect(url_for("arenden.visa", arende_id=arende.id))
 
-    return render_template("handlingar/ny.html", arende=arende)
+    typer = TypAvHandling.query.order_by(TypAvHandling.namn).all()
+    return render_template("handlingar/ny.html", arende=arende, typer=typer)
 
 
 @handlingar_bp.route("/<int:handling_id>")

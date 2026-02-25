@@ -12,6 +12,8 @@
 8. [Administration](#administration)
 9. [Roller och behörigheter](#roller-och-behörigheter)
 
+> **Snabblänkar inom Administration:** [Användare](#användare) · [Typer av handling](#typer-av-handling) · [Nummerserier](#nummerserier) · [Granskningslogg](#granskningslogg)
+
 ---
 
 ## Introduktion
@@ -215,6 +217,31 @@ Administrationsmenyn nås via **Admin** i menyraden.
 
 Avaktiverade användare kan inte logga in men finns kvar i systemet.
 
+### Typer av handling
+
+Typer av handling är fritext-etiketter (t.ex. "Ansökan", "Beslut", "Avtal") som kan kopplas till handlingar för att kategorisera dem utöver de inbyggda riktningarna (Inkommande/Utgående/Upprättad). Listan med tillgängliga typer hanteras här av administratören och visas sedan som valbara alternativ när en handling registreras.
+
+**Visa typer:**
+
+Klicka **Admin** → **Typer av handling** för att se alla definierade typer, sorterade alfabetiskt.
+
+**Lägg till ny typ:**
+
+1. Skriv in ett namn i fältet **Namn** (max 100 tecken).
+2. Klicka **Lägg till**.
+
+Varje namn måste vara unikt — försök att lägga till ett redan befintligt namn avvisas.
+
+**Ta bort en typ:**
+
+Klicka **Ta bort** (papperskorgikon) bredvid önskad typ. En bekräftelsedialog visas.
+
+> **OBS:** En typ kan inte tas bort om den används av en eller flera aktiva handlingar. Ta bort eller byt typ på berörda handlingar innan du försöker igen.
+
+Alla ändringar (skapande och borttagning) loggas i granskningsloggen.
+
+---
+
 ### Nummerserier
 
 Visar alla genererade diarienummerserier med prefix, år och senaste nummer. Denna vy är enbart för insyn — numren genereras automatiskt vid skapande av nya ärenden.
@@ -249,5 +276,6 @@ Visar alla loggade händelser i systemet (50 per sida), sorterade med de senaste
 | Söka | ✓ | ✓ | ✓ | ✓ |
 | Visa arkiv och exportera | ✓ | | | ✓ |
 | Hantera användare | ✓ | | | |
+| Hantera typer av handling | ✓ | | | |
 | Visa nummerserier | ✓ | | | |
 | Visa granskningslogg | ✓ | | | |

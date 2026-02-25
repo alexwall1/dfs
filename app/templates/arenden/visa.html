@@ -73,6 +73,7 @@
             <th>#</th>
             <th>Typ</th>
             <th>Beskrivning</th>
+            <th>Typ av handling</th>
             <th>Datum</th>
             <th>Avsändare/Mottagare</th>
         </tr>
@@ -83,11 +84,16 @@
             <td><a href="{{ url_for('handlingar.visa', handling_id=h.id) }}">{{ h.id }}</a></td>
             <td>{{ h.typ_label }}{% if h.sekretess %} <i class="bi bi-lock-fill text-danger"></i>{% endif %}</td>
             <td>{{ h.beskrivning }}</td>
+            <td>
+                {% for t in h.typer %}
+                <span class="badge bg-secondary">{{ t.namn }}</span>
+                {% else %}-{% endfor %}
+            </td>
             <td>{{ h.datum_inkom.strftime('%Y-%m-%d') if h.datum_inkom else '-' }}</td>
             <td>{{ h.avsandare or h.mottagare or '-' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted">Inga handlingar registrerade.</td></tr>
+        <tr><td colspan="6" class="text-center text-muted">Inga handlingar registrerade.</td></tr>
         {% endfor %}
     </tbody>
 </table>

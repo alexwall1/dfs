@@ -33,6 +33,19 @@
         <input type="checkbox" class="form-check-input" id="sekretess" name="sekretess">
         <label class="form-check-label" for="sekretess">Sekretess</label>
     </div>
+    {% if typer %}
+    <div class="mb-3">
+        <label class="form-label">Typ av handling</label>
+        <div>
+            {% for t in typer %}
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" name="typer" value="{{ t.id }}" id="typ_{{ t.id }}">
+                <label class="form-check-label" for="typ_{{ t.id }}">{{ t.namn }}</label>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
     <div class="mb-3">
         <label for="fil" class="form-label">Bifoga fil</label>
         <input type="file" class="form-control" id="fil" name="fil">

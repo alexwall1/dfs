@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Typer av handling{% endblock %}
+{% block content %}
+<h2>Typer av handling</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Namn</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in typer %}
+                <tr>
+                    <td>{{ t.namn }}</td>
+                    <td>
+                        <form method="POST"
+                              action="{{ url_for('admin.ta_bort_typ_av_handling', typ_id=t.id) }}"
+                              onsubmit="return confirm('Ta bort typen &quot;{{ t.namn }}&quot;?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-trash"></i> Ta bort
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="2" class="text-center text-muted">Inga typer definierade.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="col-md-6">
+    <h5>Lägg till ny typ</h5>
+    <form method="POST" action="{{ url_for('admin.ny_typ_av_handling') }}" class="d-flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" class="form-control" name="namn" placeholder="Namn" maxlength="100" required>
+        <button type="submit" class="btn btn-primary">Lägg till</button>
+    </form>
+</div>
+{% endblock %}

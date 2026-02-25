@@ -6,3 +6,5 @@ __pycache__
 .venv
 secrets/*.txt
 *.pyc
+seed_testdata.py
+testdata.db

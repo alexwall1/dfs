@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, User
+from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, User, TypAvHandling
 from tests.conftest import skapa_user, logga_in
 
 # Patchar magic.from_buffer i handlingar-modulen så att tester
@@ -1415,3 +1415,221 @@ class TestFragetimeout:
 
         resp = client.get("/sok/?mening=test")
         assert resp.status_code == 200
+
+
+# ── TypAvHandling – adminroutes ───────────────────────────────────────
+
+
+def _skapa_typ(db, namn="Protokoll"):
+    typ = TypAvHandling(namn=namn)
+    db.session.add(typ)
+    db.session.flush()
+    return typ
+
+
+class TestTypAvHandlingAdminRoutes:
+    def test_lista_typer(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        _skapa_typ(db, "Faktura")
+        db.session.commit()
+
+        resp = client.get("/admin/typer-av-handling")
+        assert resp.status_code == 200
+        assert "Faktura" in resp.data.decode()
+
+    def test_skapa_typ(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/typer-av-handling/ny",
+            data={"namn": "Remiss"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert TypAvHandling.query.filter_by(namn="Remiss").first() is not None
+
+    def test_skapa_typ_loggas(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(
+            "/admin/typer-av-handling/ny",
+            data={"namn": "Remiss"},
+            follow_redirects=True,
+        )
+        logg = AuditLog.query.filter_by(action="skapa_typ_av_handling").first()
+        assert logg is not None
+        assert logg.details["namn"] == "Remiss"
+
+    def test_skapa_typ_tomt_namn_avvisas(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/typer-av-handling/ny",
+            data={"namn": "  "},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert TypAvHandling.query.count() == 0
+
+    def test_skapa_typ_dublettnamn_avvisas(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        _skapa_typ(db, "Protokoll")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/typer-av-handling/ny",
+            data={"namn": "Protokoll"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert TypAvHandling.query.filter_by(namn="Protokoll").count() == 1
+
+    def test_ta_bort_typ(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        typ = _skapa_typ(db, "Avtal")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/typer-av-handling/{typ.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert TypAvHandling.query.get(typ.id) is None
+
+    def test_ta_bort_typ_loggas(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        typ = _skapa_typ(db, "Avtal")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(
+            f"/admin/typer-av-handling/{typ.id}/ta-bort",
+            follow_redirects=True,
+        )
+        logg = AuditLog.query.filter_by(action="ta_bort_typ_av_handling").first()
+        assert logg is not None
+        assert logg.details["namn"] == "Avtal"
+
+    def test_ta_bort_typ_blockeras_om_aktiv_handling(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        typ = _skapa_typ(db, "Protokoll")
+        arende = _skapa_arende(db, admin)
+        handling = _skapa_handling(db, arende, admin)
+        handling.typer = [typ]
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/typer-av-handling/{typ.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert TypAvHandling.query.get(typ.id) is not None
+
+    def test_ta_bort_typ_tillaten_om_handling_deleted(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        typ = _skapa_typ(db, "Protokoll")
+        arende = _skapa_arende(db, admin)
+        handling = _skapa_handling(db, arende, admin, deleted=True)
+        handling.typer = [typ]
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/typer-av-handling/{typ.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert TypAvHandling.query.get(typ.id) is None
+
+    def test_typer_krav_admin_roll(self, client, db):
+        skapa_user(db, username="registrator", role="registrator")
+        db.session.commit()
+        logga_in(client, "registrator")
+
+        resp = client.get("/admin/typer-av-handling", follow_redirects=True)
+        assert "behörighet" in resp.data.decode()
+
+
+# ── Handlingar med typer ──────────────────────────────────────────────
+
+
+class TestHandlingarMedTyper:
+    def test_ny_handling_med_typer(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        typ = _skapa_typ(db, "Faktura")
+        db.session.commit()
+        logga_in(client, "reg")
+
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            resp = client.post(
+                f"/handlingar/ny/{arende.id}",
+                data={
+                    "typ": "inkommande",
+                    "beskrivning": "Test med typ",
+                    "typer": [str(typ.id)],
+                },
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        handling = Handling.query.filter_by(beskrivning="Test med typ").first()
+        assert handling is not None
+        assert handling.typer.count() == 1
+        assert handling.typer.first().namn == "Faktura"
+
+    def test_ny_handling_utan_typer(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "inkommande", "beskrivning": "Utan typ"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        handling = Handling.query.filter_by(beskrivning="Utan typ").first()
+        assert handling is not None
+        assert handling.typer.count() == 0
+
+    def test_ny_handling_ogiltigt_typ_id_ignoreras(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "inkommande", "beskrivning": "Ogiltigt id", "typer": ["9999"]},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        handling = Handling.query.filter_by(beskrivning="Ogiltigt id").first()
+        assert handling is not None
+        assert handling.typer.count() == 0
+
+    def test_visa_handling_visar_typer(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        typ = _skapa_typ(db, "Remiss")
+        handling = _skapa_handling(db, arende, user)
+        handling.typer = [typ]
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.get(f"/handlingar/{handling.id}")
+        assert resp.status_code == 200
+        assert "Remiss" in resp.data.decode()
