@@ -47,4 +47,17 @@
     <button type="submit" class="btn btn-primary">Spara</button>
     <a href="{{ url_for('admin.anvandare') }}" class="btn btn-secondary">Avbryt</a>
 </form>
+
+{% if user.id != current_user.id %}
+<hr class="my-4 col-md-6">
+<form method="POST"
+      action="{{ url_for('admin.ta_bort_anvandare', user_id=user.id) }}"
+      class="col-md-6"
+      onsubmit="return confirm('Ta bort {{ user.username }}? Åtgärden loggas och kontot kan inte återaktiveras härifrån.')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-danger">
+        <i class="bi bi-trash"></i> Ta bort användare
+    </button>
+</form>
+{% endif %}
 {% endblock %}

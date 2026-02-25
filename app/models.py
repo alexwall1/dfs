@@ -26,6 +26,7 @@ class User(UserMixin, db.Model):
     misslyckade_inloggningar = db.Column(db.Integer, default=0, nullable=False)
     last_locked_until = db.Column(db.DateTime, nullable=True)
     maste_byta_losenord = db.Column(db.Boolean, default=False, nullable=False)
+    deleted = db.Column(db.Boolean, default=False, nullable=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)

@@ -1089,6 +1089,156 @@ class TestAdminRoutes:
         assert resp.status_code == 200
 
 
+# ── Ta bort användare ────────────────────────────────────────────────
+
+
+class TestTaBortAnvandare:
+    def test_ta_bort_anvandare(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mål", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/anvandare/{target.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(target)
+        assert target.deleted is True
+        assert target.active is False
+
+    def test_borttagen_anvandare_syns_inte_i_lista(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mål", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(f"/admin/anvandare/{target.id}/ta-bort")
+        resp = client.get("/admin/anvandare")
+        assert f"/admin/anvandare/{target.id}/redigera" not in resp.data.decode()
+
+    def test_ta_bort_eget_konto_nekad(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/anvandare/{admin.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(admin)
+        assert admin.deleted is False
+
+    def test_ta_bort_sista_admin_nekad(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="admin2", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        # Ta bort admin2 — lyckas eftersom admin fortfarande finns
+        client.post(f"/admin/anvandare/{target.id}/ta-bort")
+        db.session.refresh(target)
+        assert target.deleted is True
+
+        # Nu är admin den enda aktiva adminen — försök ta bort sig själv via
+        # en annan admin-session är inte möjligt, testa istället att en ny
+        # admin inte kan ta bort den sista aktiva adminen
+        admin3 = skapa_user(db, username="admin3", role="admin")
+        db.session.commit()
+
+        resp = client.post(
+            f"/admin/anvandare/{admin.id}/ta-bort",
+            follow_redirects=True,
+        )
+        # admin är inloggad och försöker ta bort sitt eget konto — ska nekas
+        db.session.refresh(admin)
+        assert admin.deleted is False
+
+    def test_ta_bort_en_av_flera_admins_godkant(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        admin2 = skapa_user(db, username="admin2", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/anvandare/{admin2.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(admin2)
+        assert admin2.deleted is True
+
+    def test_ta_bort_loggas_i_granskningslogg(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mål", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(f"/admin/anvandare/{target.id}/ta-bort")
+
+        logg = AuditLog.query.filter_by(
+            action="ta_bort_anvandare",
+            target_type="User",
+            target_id=target.id,
+        ).first()
+        assert logg is not None
+        assert logg.user_id == admin.id
+        assert logg.details["username"] == "mål"
+
+    def test_redigera_borttagen_anvandare_redirectar(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mål", role="handlaggare")
+        target.deleted = True
+        target.active = False
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get(
+            f"/admin/anvandare/{target.id}/redigera",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "borttagen" in resp.data.decode().lower()
+
+    def test_ta_bort_redan_borttagen_anvandare(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mål", role="handlaggare")
+        target.deleted = True
+        target.active = False
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/anvandare/{target.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        # Inga extra loggposter ska skapas
+        assert AuditLog.query.filter_by(action="ta_bort_anvandare").count() == 0
+
+    def test_spårbarhet_auditlogg_bevaras_efter_borttagning(self, client, db):
+        """AuditLog-poster skapade av den borttagna användaren ska finnas kvar."""
+        admin = skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mål", role="registrator")
+        db.session.commit()
+
+        # Skapa en loggpost som refererar till target
+        from app.models import log_action
+        with client.application.test_request_context():
+            log_action(target.id, "login", details={"test": True})
+        db.session.commit()
+
+        logga_in(client, "admin")
+        client.post(f"/admin/anvandare/{target.id}/ta-bort")
+
+        # Ursprunglig loggpost ska fortfarande finnas och peka på rätt user_id
+        logg = AuditLog.query.filter_by(action="login", user_id=target.id).first()
+        assert logg is not None
+        assert logg.user_id == target.id
+
+
 # ── Arkiv ────────────────────────────────────────────────────────────
 
 

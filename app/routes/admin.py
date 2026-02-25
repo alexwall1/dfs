@@ -17,7 +17,7 @@ def index():
 @admin_bp.route("/anvandare")
 @role_required("admin")
 def anvandare():
-    users = User.query.order_by(User.full_name).all()
+    users = User.query.filter_by(deleted=False).order_by(User.full_name).all()
     return render_template("admin/anvandare.html", users=users)
 
 
@@ -61,10 +61,52 @@ def ny_anvandare():
     return render_template("admin/ny_anvandare.html")
 
 
+@admin_bp.route("/anvandare/<int:user_id>/ta-bort", methods=["POST"])
+@role_required("admin")
+def ta_bort_anvandare(user_id):
+    user = User.query.get_or_404(user_id)
+
+    if user.deleted:
+        flash("Användaren är redan borttagen.", "danger")
+        return redirect(url_for("admin.anvandare"))
+
+    if user.id == current_user.id:
+        flash("Du kan inte ta bort ditt eget konto.", "danger")
+        return redirect(url_for("admin.redigera_anvandare", user_id=user_id))
+
+    if user.role == "admin":
+        kvarvarande = User.query.filter(
+            User.role == "admin",
+            User.active == True,
+            User.deleted == False,
+            User.id != user_id,
+        ).count()
+        if kvarvarande == 0:
+            flash("Det måste finnas minst en aktiv administratör.", "danger")
+            return redirect(url_for("admin.redigera_anvandare", user_id=user_id))
+
+    user.deleted = True
+    user.active = False
+    log_action(
+        current_user.id,
+        "ta_bort_anvandare",
+        "User",
+        user.id,
+        {"username": user.username, "role": user.role},
+    )
+    db.session.commit()
+    flash(f"Användare {user.username} borttagen.", "success")
+    return redirect(url_for("admin.anvandare"))
+
+
 @admin_bp.route("/anvandare/<int:user_id>/redigera", methods=["GET", "POST"])
 @role_required("admin")
 def redigera_anvandare(user_id):
     user = User.query.get_or_404(user_id)
+
+    if user.deleted:
+        flash("Användaren är borttagen.", "danger")
+        return redirect(url_for("admin.anvandare"))
 
     if request.method == "POST":
         user.full_name = request.form["full_name"].strip()
