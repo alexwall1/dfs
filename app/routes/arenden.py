@@ -1,8 +1,8 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
 
 from app import db
-from app.models import Arende, User, Nummerserie, log_action
+from app.models import Arende, User, Nummerserie, Installning, log_action
 from app.auth import role_required
 
 arenden_bp = Blueprint("arenden", __name__, url_prefix="/arenden")
@@ -29,7 +29,10 @@ def lista():
 @role_required("admin", "registrator")
 def ny():
     if request.method == "POST":
-        prefix = request.form.get("prefix", "DNR").strip().upper() or "DNR"
+        if current_user.role == "admin":
+            prefix = request.form.get("prefix", "").strip().upper() or Installning.get("standardprefix", "DNR")
+        else:
+            prefix = Installning.get("standardprefix", "DNR")
         diarienummer = Nummerserie.next_number(prefix)
 
         arende = Arende(
@@ -54,7 +57,8 @@ def ny():
         return redirect(url_for("arenden.visa", arende_id=arende.id))
 
     handlaggare = User.query.filter_by(active=True).order_by(User.full_name).all()
-    return render_template("arenden/ny.html", handlaggare=handlaggare)
+    standardprefix = Installning.get("standardprefix", "DNR")
+    return render_template("arenden/ny.html", handlaggare=handlaggare, standardprefix=standardprefix)
 
 
 @arenden_bp.route("/<int:arende_id>")
@@ -102,6 +106,10 @@ def redigera(arende_id):
 @role_required("admin", "registrator", "handlaggare")
 def byt_status(arende_id):
     arende = Arende.query.get_or_404(arende_id)
+
+    if current_user.role == "handlaggare" and arende.handlaggare_id != current_user.id:
+        abort(403)
+
     ny_status = request.form.get("ny_status")
 
     if ny_status not in arende.allowed_transitions:

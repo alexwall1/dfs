@@ -11,6 +11,7 @@ from app.models import (
     DocumentVersion,
     AuditLog,
     Nummerserie,
+    Installning,
     Kategori,
     log_action,
     validera_losenord,
@@ -524,6 +525,30 @@ class TestNummerserie:
         db.session.add(s2)
         with pytest.raises(Exception):
             db.session.flush()
+
+
+# ── Installning ──────────────────────────────────────────────────
+
+
+class TestInstallning:
+    def test_get_returns_default_when_missing(self, db):
+        assert Installning.get("standardprefix", "DNR") == "DNR"
+
+    def test_get_returns_saved_value(self, db):
+        db.session.add(Installning(key="standardprefix", value="FOO"))
+        db.session.flush()
+        assert Installning.get("standardprefix", "DNR") == "FOO"
+
+    def test_get_none_default_when_missing(self, db):
+        assert Installning.get("saknas") is None
+
+    def test_update_value(self, db):
+        installning = Installning(key="standardprefix", value="FOO")
+        db.session.add(installning)
+        db.session.flush()
+        installning.value = "BAR"
+        db.session.flush()
+        assert Installning.get("standardprefix") == "BAR"
 
 
 # ── Kategori ─────────────────────────────────────────────────────

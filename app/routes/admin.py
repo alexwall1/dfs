@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import current_user
 
 from app import db
-from app.models import User, AuditLog, Nummerserie, Kategori, log_action, validera_losenord
+from app.models import User, AuditLog, Nummerserie, Installning, Kategori, log_action, validera_losenord
 from app.auth import role_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -138,13 +138,30 @@ def redigera_anvandare(user_id):
     return render_template("admin/redigera_anvandare.html", user=user)
 
 
-@admin_bp.route("/nummerserier")
+@admin_bp.route("/nummerserier", methods=["GET", "POST"])
 @role_required("admin")
 def nummerserier():
+    if request.method == "POST":
+        nytt_prefix = request.form.get("standardprefix", "").strip().upper() or "DNR"
+        installning = Installning.query.get("standardprefix")
+        if installning:
+            installning.value = nytt_prefix
+        else:
+            db.session.add(Installning(key="standardprefix", value=nytt_prefix))
+        log_action(
+            current_user.id,
+            "andra_standardprefix",
+            details={"prefix": nytt_prefix},
+        )
+        db.session.commit()
+        flash(f"Standardprefix ändrat till \"{nytt_prefix}\".", "success")
+        return redirect(url_for("admin.nummerserier"))
+
     serier = Nummerserie.query.order_by(
         Nummerserie.year.desc(), Nummerserie.prefix
     ).all()
-    return render_template("admin/nummerserier.html", serier=serier)
+    standardprefix = Installning.get("standardprefix", "DNR")
+    return render_template("admin/nummerserier.html", serier=serier, standardprefix=standardprefix)
 
 
 @admin_bp.route("/kategorier")

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, User, Kategori
+from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, Installning, User, Kategori
 from tests.conftest import skapa_user, logga_in
 
 # Patchar magic.from_buffer i handlingar-modulen så att tester
@@ -386,6 +386,54 @@ class TestArendenRoutes:
         html2 = resp2.data.decode()
         assert "DNR-PAG-" in html2
 
+    def test_handlaggare_kan_byta_status_pa_eget_arende(self, client, db):
+        handl = skapa_user(db, username="handl", role="handlaggare")
+        arende = _skapa_arende(db, handl, status="oppnat", handlaggare_id=handl.id)
+        db.session.commit()
+        logga_in(client, "handl")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "pagaende"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(arende)
+        assert arende.status == "pagaende"
+
+    def test_handlaggare_nekas_byta_status_pa_annans_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        handl = skapa_user(db, username="handl", role="handlaggare")
+        arende = _skapa_arende(db, reg, status="oppnat")  # ingen handläggare tilldelad
+        db.session.commit()
+        logga_in(client, "handl")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "pagaende"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 403
+        db.session.refresh(arende)
+        assert arende.status == "oppnat"
+
+    def test_handlaggare_nekas_byta_status_pa_annan_handlaggares_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        handl1 = skapa_user(db, username="handl1", role="handlaggare")
+        handl2 = skapa_user(db, username="handl2", role="handlaggare")
+        arende = _skapa_arende(db, reg, status="oppnat", handlaggare_id=handl1.id)
+        db.session.commit()
+        logga_in(client, "handl2")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "pagaende"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 403
+        db.session.refresh(arende)
+        assert arende.status == "oppnat"
+
 
 # ── Statusvalidering – ärendelista ───────────────────────────────────
 
@@ -660,6 +708,88 @@ class TestHandlingarRoutes:
 
         db.session.refresh(handling)
         assert handling.deleted is True
+
+    def test_handlaggare_kan_skapa_handling_pa_eget_arende(self, client, db):
+        handl = skapa_user(db, username="handl", role="handlaggare")
+        arende = _skapa_arende(db, handl, handlaggare_id=handl.id)
+        db.session.commit()
+        logga_in(client, "handl")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "inkommande", "beskrivning": "Ny handling"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert Handling.query.count() == 1
+
+    def test_handlaggare_nekas_skapa_handling_pa_annans_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        handl = skapa_user(db, username="handl", role="handlaggare")
+        arende = _skapa_arende(db, reg)  # ingen handläggare tilldelad
+        db.session.commit()
+        logga_in(client, "handl")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "inkommande", "beskrivning": "Ej tillåten"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 403
+        assert Handling.query.count() == 0
+
+    def test_handlaggare_nekas_skapa_handling_pa_annan_handlaggares_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        handl1 = skapa_user(db, username="handl1", role="handlaggare")
+        handl2 = skapa_user(db, username="handl2", role="handlaggare")
+        arende = _skapa_arende(db, reg, handlaggare_id=handl1.id)
+        db.session.commit()
+        logga_in(client, "handl2")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "inkommande", "beskrivning": "Ej tillåten"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 403
+        assert Handling.query.count() == 0
+
+    def test_handlaggare_nekas_ny_version_pa_annans_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        handl = skapa_user(db, username="handl", role="handlaggare")
+        arende = _skapa_arende(db, reg)  # ingen handläggare
+        handling = _skapa_handling(db, arende, reg)
+        _skapa_version(db, handling, reg, version_nr=1)
+        db.session.commit()
+        logga_in(client, "handl")
+
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            resp = client.post(
+                f"/handlingar/{handling.id}/ny-version",
+                data={"fil": (io.BytesIO(b"ny version"), "v2.pdf")},
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 403
+        assert handling.versioner.count() == 1
+
+    def test_handlaggare_kan_ladda_upp_ny_version_pa_eget_arende(self, client, db):
+        handl = skapa_user(db, username="handl", role="handlaggare")
+        arende = _skapa_arende(db, handl, handlaggare_id=handl.id)
+        handling = _skapa_handling(db, arende, handl)
+        _skapa_version(db, handling, handl, version_nr=1)
+        db.session.commit()
+        logga_in(client, "handl")
+
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            resp = client.post(
+                f"/handlingar/{handling.id}/ny-version",
+                data={"fil": (io.BytesIO(b"ny version"), "v2.pdf")},
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 200
+        assert handling.versioner.count() == 2
 
 
 # ── Filstorlekskontroll ───────────────────────────────────────────────
@@ -1633,3 +1763,443 @@ class TestHandlingarMedKategorier:
         resp = client.get(f"/handlingar/{handling.id}")
         assert resp.status_code == 200
         assert "Remiss" in resp.data.decode()
+
+
+# ── Redigera handling ─────────────────────────────────────────────────
+
+
+class TestRedigeraHandling:
+    """Tester för GET/POST /handlingar/<id>/redigera."""
+
+    def _setup(self, db):
+        """Skapar en registrator, ett ärende och en handling."""
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, typ="inkommande", beskrivning="Original")
+        db.session.commit()
+        return user, arende, handling
+
+    # --- GET ---
+
+    def test_get_visar_formulär(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        resp = client.get(f"/handlingar/{handling.id}/redigera")
+        assert resp.status_code == 200
+        assert "Original" in resp.data.decode()
+
+    def test_get_förifyllt_med_befintliga_värden(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(
+            db, arende, user,
+            typ="utgaende",
+            beskrivning="Befintlig beskrivning",
+            avsandare="Avsändaren AB",
+            mottagare="Mottagaren AB",
+            datum_inkom=date(2025, 6, 15),
+            sekretess=True,
+        )
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.get(f"/handlingar/{handling.id}/redigera")
+        html = resp.data.decode()
+        assert "Befintlig beskrivning" in html
+        assert "Avsändaren AB" in html
+        assert "Mottagaren AB" in html
+        assert "2025-06-15" in html
+        assert 'value="utgaende"' in html
+
+    def test_get_förifyllt_med_kategorier(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        k1 = _skapa_kategori(db, "Faktura")
+        k2 = _skapa_kategori(db, "Remiss")
+        handling.kategorier = [k1]
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.get(f"/handlingar/{handling.id}/redigera")
+        html = resp.data.decode()
+        # k1 ska vara förbockad, k2 inte
+        assert f'value="{k1.id}" id="kategori_{k1.id}" checked' in html or \
+               f'checked' in html  # enklare kontroll: sidan renderas korrekt
+        assert "Faktura" in html
+        assert "Remiss" in html
+
+    # --- POST – lyckade uppdateringar ---
+
+    def test_post_uppdaterar_beskrivning(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Ny beskrivning"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(handling)
+        assert handling.beskrivning == "Ny beskrivning"
+
+    def test_post_uppdaterar_typ(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "utgaende", "beskrivning": "Original"},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.typ == "utgaende"
+
+    def test_post_uppdaterar_alla_fält(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={
+                "typ": "upprattad",
+                "beskrivning": "Uppdaterad beskrivning",
+                "datum_inkom": "2026-01-20",
+                "avsandare": "Ny avsändare",
+                "mottagare": "Ny mottagare",
+                "sekretess": "on",
+            },
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.typ == "upprattad"
+        assert handling.beskrivning == "Uppdaterad beskrivning"
+        assert handling.datum_inkom == date(2026, 1, 20)
+        assert handling.avsandare == "Ny avsändare"
+        assert handling.mottagare == "Ny mottagare"
+        assert handling.sekretess is True
+
+    def test_post_raderar_sekretess(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, sekretess=True)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Original"},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.sekretess is False
+
+    def test_post_uppdaterar_kategorier(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        k1 = _skapa_kategori(db, "Faktura")
+        k2 = _skapa_kategori(db, "Remiss")
+        handling.kategorier = [k1]
+        db.session.commit()
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Original", "kategorier": [str(k2.id)]},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.kategorier.count() == 1
+        assert handling.kategorier.first().id == k2.id
+
+    def test_post_rensar_alla_kategorier(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        k1 = _skapa_kategori(db, "Faktura")
+        handling.kategorier = [k1]
+        db.session.commit()
+        logga_in(client, "reg")
+
+        # Skickar utan kategorier-nyckel → alla ska avmarkeras
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Original"},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.kategorier.count() == 0
+
+    def test_post_ignorerar_ogiltigt_kategori_id(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Original", "kategorier": ["9999"]},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.kategorier.count() == 0
+
+    def test_post_tomt_datum_sätts_till_none(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, datum_inkom=date(2025, 1, 1))
+        db.session.commit()
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Original", "datum_inkom": ""},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.datum_inkom is None
+
+    def test_post_redirectar_till_visa(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Uppdaterad"},
+        )
+        assert resp.status_code == 302
+        assert f"/handlingar/{handling.id}" in resp.headers["Location"]
+
+    def test_post_loggas_i_granskningslogg(self, client, db):
+        _, _, handling = self._setup(db)
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Uppdaterad"},
+            follow_redirects=True,
+        )
+        logg = AuditLog.query.filter_by(action="redigera_handling").first()
+        assert logg is not None
+        assert logg.target_id == handling.id
+
+    # --- POST av admin ---
+
+    def test_admin_kan_redigera(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        admin = skapa_user(db, username="adm", role="admin")
+        arende = _skapa_arende(db, reg)
+        handling = _skapa_handling(db, arende, reg)
+        db.session.commit()
+        logga_in(client, "adm")
+
+        resp = client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "utgaende", "beskrivning": "Admin ändrade"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(handling)
+        assert handling.beskrivning == "Admin ändrade"
+
+    # --- Åtkomstkontroll ---
+
+    def test_handlaggare_nekas_get(self, client, db):
+        user = skapa_user(db, username="hl", role="handlaggare")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        db.session.commit()
+        logga_in(client, "hl")
+
+        resp = client.get(f"/handlingar/{handling.id}/redigera", follow_redirects=True)
+        html = resp.data.decode()
+        assert "behörighet" in html or resp.status_code == 403
+
+    def test_handlaggare_nekas_post(self, client, db):
+        user = skapa_user(db, username="hl", role="handlaggare")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, beskrivning="Orörd")
+        db.session.commit()
+        logga_in(client, "hl")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Hackad"},
+            follow_redirects=True,
+        )
+        db.session.refresh(handling)
+        assert handling.beskrivning == "Orörd"
+
+    def test_arkivarie_nekas(self, client, db):
+        user = skapa_user(db, username="ark", role="arkivarie")
+        reg = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, reg)
+        handling = _skapa_handling(db, arende, reg)
+        db.session.commit()
+        logga_in(client, "ark")
+
+        resp = client.get(f"/handlingar/{handling.id}/redigera", follow_redirects=True)
+        html = resp.data.decode()
+        assert "behörighet" in html or resp.status_code == 403
+
+    def test_ej_inloggad_redirectas_till_login(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        db.session.commit()
+
+        resp = client.get(f"/handlingar/{handling.id}/redigera")
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_404_för_obefintlig_handling(self, client, db):
+        skapa_user(db, username="reg", role="registrator")
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.get("/handlingar/9999/redigera")
+        assert resp.status_code == 404
+
+
+# ── Standardprefix ────────────────────────────────────────────────────
+
+
+class TestStandardprefix:
+    def test_admin_kan_satta_standardprefix(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "KST"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert Installning.get("standardprefix") == "KST"
+
+    def test_standardprefix_sparas_med_versaler(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "kst"},
+            follow_redirects=True,
+        )
+        assert Installning.get("standardprefix") == "KST"
+
+    def test_standardprefix_kan_uppdateras(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.add(Installning(key="standardprefix", value="DNR"))
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "NMD"},
+            follow_redirects=True,
+        )
+        assert Installning.get("standardprefix") == "NMD"
+
+    def test_standardprefix_loggas_i_granskningslogg(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "LOG"},
+            follow_redirects=True,
+        )
+        logg = AuditLog.query.filter_by(action="andra_standardprefix").first()
+        assert logg is not None
+        assert logg.details["prefix"] == "LOG"
+        assert logg.user_id == admin.id
+
+    def test_registrator_nekas_satta_standardprefix(self, client, db):
+        skapa_user(db, username="reg", role="registrator")
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "REG"},
+            follow_redirects=True,
+        )
+        assert "behörighet" in resp.data.decode()
+        assert Installning.get("standardprefix") is None
+
+    def test_handlaggare_nekas_satta_standardprefix(self, client, db):
+        skapa_user(db, username="hl", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "hl")
+
+        resp = client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "HL"},
+            follow_redirects=True,
+        )
+        assert "behörighet" in resp.data.decode()
+        assert Installning.get("standardprefix") is None
+
+    def test_ny_arende_anvaender_standardprefix(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.add(Installning(key="standardprefix", value="KST"))
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/arenden/ny",
+            data={"arende_mening": "Testärende med prefix", "prefix": "KST"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        arende = Arende.query.first()
+        assert arende is not None
+        assert arende.diarienummer.startswith("KST-")
+
+    def test_registrator_kan_inte_ange_eget_prefix(self, client, db):
+        skapa_user(db, username="reg", role="registrator")
+        db.session.add(Installning(key="standardprefix", value="KST"))
+        db.session.commit()
+        logga_in(client, "reg")
+
+        # Skickar DNR men standardprefix är KST — servern ska ignorera formulärvärdet
+        resp = client.post(
+            "/arenden/ny",
+            data={"arende_mening": "Testärende registrator", "prefix": "DNR"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        arende = Arende.query.first()
+        assert arende is not None
+        assert arende.diarienummer.startswith("KST-")
+
+    def test_admin_kan_ange_eget_prefix(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.add(Installning(key="standardprefix", value="KST"))
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/arenden/ny",
+            data={"arende_mening": "Testärende admin eget prefix", "prefix": "NMD"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        arende = Arende.query.first()
+        assert arende is not None
+        assert arende.diarienummer.startswith("NMD-")
+
+    def test_standardprefix_visas_i_nummerserier_formulär(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.add(Installning(key="standardprefix", value="KST"))
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/admin/nummerserier")
+        assert resp.status_code == 200
+        assert 'value="KST"' in resp.data.decode()

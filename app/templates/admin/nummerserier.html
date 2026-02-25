@@ -3,6 +3,22 @@
 {% block content %}
 <h2>Nummerserier</h2>
 
+<div class="card mb-4" style="max-width: 400px;">
+    <div class="card-body">
+        <h5 class="card-title">Standardprefix</h5>
+        <p class="card-text text-muted">Används som förvalt prefix när ett nytt ärende skapas.</p>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="input-group">
+                <input type="text" class="form-control" name="standardprefix"
+                       value="{{ standardprefix }}" maxlength="20" required
+                       style="text-transform: uppercase;">
+                <button type="submit" class="btn btn-primary">Spara</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <table class="table table-striped">
     <thead>
         <tr>

@@ -101,6 +101,9 @@ handlingar_bp = Blueprint("handlingar", __name__, url_prefix="/handlingar")
 def ny(arende_id):
     arende = Arende.query.get_or_404(arende_id)
 
+    if current_user.role == "handlaggare" and arende.handlaggare_id != current_user.id:
+        abort(403)
+
     if request.method == "POST":
         # Validera filen innan vi skapar handling-posten för att undvika
         # att en ogiltig fil lämnar en halvt skapad post i databasen.
@@ -181,6 +184,10 @@ def visa(handling_id):
 @role_required("admin", "registrator", "handlaggare")
 def ny_version(handling_id):
     handling = Handling.query.get_or_404(handling_id)
+
+    if current_user.role == "handlaggare" and handling.arende.handlaggare_id != current_user.id:
+        abort(403)
+
     fil = request.files.get("fil")
 
     if not fil or not fil.filename:
@@ -230,6 +237,47 @@ def ladda_ner(version_id):
         io.BytesIO(version.fildata),
         download_name=version.filnamn,
         mimetype=version.mime_type or "application/octet-stream",
+    )
+
+
+@handlingar_bp.route("/<int:handling_id>/redigera", methods=["GET", "POST"])
+@role_required("admin", "registrator")
+def redigera(handling_id):
+    handling = Handling.query.get_or_404(handling_id)
+
+    if request.method == "POST":
+        datum_str = request.form.get("datum_inkom")
+        handling.typ = request.form["typ"]
+        handling.beskrivning = request.form["beskrivning"].strip()
+        handling.datum_inkom = date.fromisoformat(datum_str) if datum_str else None
+        handling.avsandare = request.form.get("avsandare", "").strip() or None
+        handling.mottagare = request.form.get("mottagare", "").strip() or None
+        handling.sekretess = "sekretess" in request.form
+
+        kategori_ids = request.form.getlist("kategorier")
+        valda_kategorier = Kategori.query.filter(
+            Kategori.id.in_([int(k) for k in kategori_ids if k.isdigit()])
+        ).all()
+        handling.kategorier = valda_kategorier
+
+        log_action(
+            current_user.id,
+            "redigera_handling",
+            "Handling",
+            handling.id,
+            {"arende": handling.arende.diarienummer},
+        )
+        db.session.commit()
+        flash("Handlingen har uppdaterats.", "success")
+        return redirect(url_for("handlingar.visa", handling_id=handling.id))
+
+    kategorier = Kategori.query.order_by(Kategori.namn).all()
+    valda_ids = {k.id for k in handling.kategorier.all()}
+    return render_template(
+        "handlingar/redigera.html",
+        handling=handling,
+        kategorier=kategorier,
+        valda_ids=valda_ids,
     )
 
 

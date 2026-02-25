@@ -191,6 +191,18 @@ class AuditLog(db.Model):
     user = db.relationship("User")
 
 
+class Installning(db.Model):
+    __tablename__ = "installningar"
+
+    key = db.Column(db.String(50), primary_key=True)
+    value = db.Column(db.String(200), nullable=False)
+
+    @classmethod
+    def get(cls, key, default=None):
+        row = cls.query.get(key)
+        return row.value if row else default
+
+
 class Nummerserie(db.Model):
     __tablename__ = "nummerserier"
 
