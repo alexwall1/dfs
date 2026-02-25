@@ -1,7 +1,7 @@
 from datetime import date
 
 from flask import Blueprint, render_template, request, flash
-from flask_login import login_required
+from flask_login import login_required, current_user
 
 from app.models import Arende, Handling, Kategori, handling_kategori
 
@@ -31,6 +31,8 @@ def sok():
 
     if any(q.get(k) for k in ("diarienummer", "mening", "status", "fran", "till", "avsandare", "beskrivning", "typ_handling")):
         query = Arende.query.filter_by(deleted=False)
+        if current_user.role == "observator":
+            query = query.filter(Arende.sekretess == False)
 
         if q.get("diarienummer"):
             query = query.filter(

@@ -2293,3 +2293,25 @@ class TestObservator:
         html = resp.data.decode()
         assert "Sekretessbelagda handlingar visas inte" in html
         assert "Inga handlingar registrerade." in html
+
+    def test_observator_sok_exkluderar_sekretess_arenden(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende_oppen = _skapa_arende(db, user, diarienummer="DNR-OBS-001", arende_mening="Öppet ärende")
+        arende_sekretess = _skapa_arende(db, user, diarienummer="DNR-OBS-002", arende_mening="Sekretessärende", sekretess=True)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/sok/?mening=ärende")
+        html = resp.data.decode()
+        assert "DNR-OBS-001" in html
+        assert "DNR-OBS-002" not in html
+
+    def test_observator_sok_visar_offentliga_arenden(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        _skapa_arende(db, user, diarienummer="DNR-OBS-003", arende_mening="Publikt ärende", sekretess=False)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/sok/?mening=Publikt")
+        html = resp.data.decode()
+        assert "DNR-OBS-003" in html
