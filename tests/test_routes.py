@@ -2203,3 +2203,93 @@ class TestStandardprefix:
         resp = client.get("/admin/nummerserier")
         assert resp.status_code == 200
         assert 'value="KST"' in resp.data.decode()
+
+
+# ── Observatör ────────────────────────────────────────────────────────
+
+
+class TestObservator:
+    def test_observator_kan_lista_arenden(self, client, db):
+        skapa_user(db, username="obs", role="observator")
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/arenden/")
+        assert resp.status_code == 200
+
+    def test_observator_kan_visa_arende(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get(f"/arenden/{arende.id}")
+        assert resp.status_code == 200
+
+    def test_observator_nekas_skapa_arende(self, client, db):
+        skapa_user(db, username="obs", role="observator")
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.post("/arenden/ny", data={"arende_mening": "Test"})
+        assert resp.status_code == 302
+
+    def test_observator_nekas_skapa_handling(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.post(f"/handlingar/ny/{arende.id}", data={"typ": "inkommande", "beskrivning": "Test"})
+        assert resp.status_code == 302
+
+    def test_observator_kan_visa_handling_utan_sekretess(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, sekretess=False)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get(f"/handlingar/{handling.id}")
+        assert resp.status_code == 200
+
+    def test_observator_nekas_sekretess_handling(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, sekretess=True)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get(f"/handlingar/{handling.id}")
+        assert resp.status_code == 403
+
+    def test_observator_nekas_handling_i_sekretess_arende(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user, sekretess=True)
+        handling = _skapa_handling(db, arende, user)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get(f"/handlingar/{handling.id}")
+        assert resp.status_code == 403
+
+    def test_observator_nekas_admin(self, client, db):
+        skapa_user(db, username="obs", role="observator")
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/admin/")
+        assert resp.status_code == 302
+
+    def test_observator_handlingar_filtreras_i_arende_vy(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user, sekretess=True)
+        _skapa_handling(db, arende, user)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get(f"/arenden/{arende.id}")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        assert "Sekretessbelagda handlingar visas inte" in html
+        assert "Inga handlingar registrerade." in html

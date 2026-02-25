@@ -69,8 +69,21 @@ def visa(arende_id):
         flash("Ärendet finns inte.", "danger")
         return redirect(url_for("arenden.lista"))
 
-    handlingar = arende.handlingar.filter_by(deleted=False).all()
-    return render_template("arenden/visa.html", arende=arende, handlingar=handlingar)
+    handlingar_alla = arende.handlingar.filter_by(deleted=False).all()
+    if current_user.role == "observator":
+        if arende.sekretess:
+            handlingar = []
+            sekretess_dold = True
+        else:
+            handlingar = [h for h in handlingar_alla if not h.sekretess]
+            sekretess_dold = len(handlingar) < len(handlingar_alla)
+    else:
+        handlingar = handlingar_alla
+        sekretess_dold = False
+    return render_template(
+        "arenden/visa.html", arende=arende,
+        handlingar=handlingar, sekretess_dold=sekretess_dold
+    )
 
 
 @arenden_bp.route("/<int:arende_id>/redigera", methods=["GET", "POST"])

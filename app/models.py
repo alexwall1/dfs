@@ -18,7 +18,7 @@ class User(UserMixin, db.Model):
         db.String(20),
         nullable=False,
         default="handlaggare",
-    )  # admin, registrator, handlaggare, arkivarie
+    )  # admin, registrator, handlaggare, arkivarie, observator
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc)
@@ -43,6 +43,7 @@ class User(UserMixin, db.Model):
         "registrator": "Registrator",
         "handlaggare": "Handläggare",
         "arkivarie": "Arkivarie",
+        "observator": "Observatör",
     }
 
     @property

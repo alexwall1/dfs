@@ -67,6 +67,13 @@
     {% endif %}
 </div>
 
+{% if sekretess_dold %}
+<div class="alert alert-warning">
+    <i class="bi bi-lock-fill"></i>
+    Sekretessbelagda handlingar visas inte för din roll.
+</div>
+{% endif %}
+
 <table class="table table-striped">
     <thead>
         <tr>
