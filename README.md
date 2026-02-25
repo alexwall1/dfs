@@ -1,4 +1,8 @@
-# Driftsättning av DFS2
+# DFS
+
+Ett enkelt och öppet (GPL) diarieföringssystem. Testa [här](https://dfs.alexanderwall.se)
+
+# Driftsättning
 
 ## Förutsättningar
 
@@ -10,8 +14,8 @@
 ### 1. Hämta koden
 
 ```bash
-git clone <repo-url> dfs2
-cd dfs2
+git clone <repo-url> dfs
+cd dfs
 ```
 
 ### 2. Konfigurera miljövariabler
