@@ -2,6 +2,8 @@
 
 Ett enkelt och öppet (GPL) diarieföringssystem. Testa [här](https://dfs.alexanderwall.se)
 
+![alt text](https://github.com/alexwall1/dfs/blob/main/screenshot.png?raw=true)
+
 # Driftsättning
 
 ## Förutsättningar
