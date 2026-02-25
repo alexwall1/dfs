@@ -1,6 +1,6 @@
 # DFS
 
-Ett enkelt och öppet (GPL) diarieföringssystem. Testa [här](https://dfs.alexanderwall.se)
+Ett enkelt och öppet (GPL) diarieföringssystem. 
 
 ![alt text](https://github.com/alexwall1/dfs/blob/main/screenshot.png?raw=true)
 
