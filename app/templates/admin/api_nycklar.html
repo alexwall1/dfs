@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}API-nycklar{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>API-nycklar</h2>
+    <div>
+        <a href="/api/docs/" class="btn btn-outline-secondary me-2" target="_blank">
+            <i class="bi bi-file-earmark-code"></i> Swagger UI
+        </a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#nyNyckelModal">
+            <i class="bi bi-plus-lg"></i> Ny API-nyckel
+        </button>
+    </div>
+</div>
+
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle"></i>
+    API-nyckeln visas i klartext <strong>en gång</strong> när den skapas.
+    Spara den omedelbart – det går inte att återfå den.
+</div>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Etikett</th>
+            <th>Användare</th>
+            <th>Roll</th>
+            <th>Skapad</th>
+            <th>Senast använd</th>
+            <th>Status</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for nyckel in nycklar %}
+        <tr>
+            <td>{{ nyckel.label }}</td>
+            <td>{{ nyckel.anvandare.username }}</td>
+            <td>{{ nyckel.anvandare.role_label }}</td>
+            <td>{{ nyckel.skapad_datum.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ nyckel.anvand_senast.strftime('%Y-%m-%d %H:%M') if nyckel.anvand_senast else '—' }}</td>
+            <td>
+                {% if nyckel.aktiv %}
+                <span class="badge bg-success">Aktiv</span>
+                {% else %}
+                <span class="badge bg-secondary">Återkallad</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if nyckel.aktiv %}
+                <form method="post" action="{{ url_for('admin.aterkalla_api_nyckel', nyckel_id=nyckel.id) }}"
+                      onsubmit="return confirm('Återkalla API-nyckeln \'{{ nyckel.label }}\'?')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-x-circle"></i> Återkalla
+                    </button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="7" class="text-muted">Inga API-nycklar skapade ännu.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Modal: Ny API-nyckel -->
+<div class="modal fade" id="nyNyckelModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('admin.ny_api_nyckel') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Skapa ny API-nyckel</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Etikett</label>
+                        <input type="text" name="label" class="form-control" required
+                               placeholder="t.ex. Chatbot integration">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Knyt till användare</label>
+                        <select name="user_id" class="form-select" required>
+                            <option value="">— Välj användare —</option>
+                            {% for u in users %}
+                            <option value="{{ u.id }}">{{ u.username }} ({{ u.role_label }})</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            API-anropens behörigheter styrs av den valda användarens roll.
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                    <button type="submit" class="btn btn-primary">Skapa nyckel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

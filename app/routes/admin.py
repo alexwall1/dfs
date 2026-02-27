@@ -1,8 +1,11 @@
+import hashlib
+import secrets
+
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import current_user
 
 from app import db
-from app.models import User, AuditLog, Nummerserie, Installning, Kategori, log_action, validera_losenord
+from app.models import User, AuditLog, Nummerserie, Installning, Kategori, APIKey, log_action, validera_losenord
 from app.auth import role_required
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -219,3 +222,70 @@ def logg():
         .paginate(page=page, per_page=50, error_out=False)
     )
     return render_template("admin/logg.html", pagination=pagination)
+
+
+@admin_bp.route("/api-nycklar")
+@role_required("admin")
+def api_nycklar():
+    nycklar = (
+        APIKey.query
+        .join(APIKey.anvandare)
+        .order_by(APIKey.skapad_datum.desc())
+        .all()
+    )
+    users = User.query.filter_by(deleted=False, active=True).order_by(User.full_name).all()
+    return render_template("admin/api_nycklar.html", nycklar=nycklar, users=users)
+
+
+@admin_bp.route("/api-nycklar/ny", methods=["POST"])
+@role_required("admin")
+def ny_api_nyckel():
+    label = request.form.get("label", "").strip()
+    user_id = request.form.get("user_id", type=int)
+
+    if not label:
+        flash("Etikett är obligatoriskt.", "danger")
+        return redirect(url_for("admin.api_nycklar"))
+
+    user = User.query.get(user_id)
+    if not user or user.deleted:
+        flash("Användaren finns inte.", "danger")
+        return redirect(url_for("admin.api_nycklar"))
+
+    raw_key = secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    api_key = APIKey(user_id=user.id, key_hash=key_hash, label=label)
+    db.session.add(api_key)
+    db.session.flush()
+    log_action(
+        current_user.id,
+        "skapa_api_nyckel",
+        "APIKey",
+        api_key.id,
+        {"label": label, "user": user.username},
+    )
+    db.session.commit()
+
+    flash(
+        f"API-nyckel skapad. Spara nyckeln nu – den visas bara en gång: {raw_key}",
+        "success",
+    )
+    return redirect(url_for("admin.api_nycklar"))
+
+
+@admin_bp.route("/api-nycklar/<int:nyckel_id>/aterkalla", methods=["POST"])
+@role_required("admin")
+def aterkalla_api_nyckel(nyckel_id):
+    api_key = APIKey.query.get_or_404(nyckel_id)
+    api_key.aktiv = False
+    log_action(
+        current_user.id,
+        "aterkalla_api_nyckel",
+        "APIKey",
+        api_key.id,
+        {"label": api_key.label, "user": api_key.anvandare.username},
+    )
+    db.session.commit()
+    flash(f"API-nyckeln '{api_key.label}' har återkallats.", "success")
+    return redirect(url_for("admin.api_nycklar"))

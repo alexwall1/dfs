@@ -5,12 +5,14 @@ from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_smorest import Api as SmorestApi
 
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
 csrf = CSRFProtect()
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
+smorest_api = SmorestApi()
 login_manager.login_view = "auth.login"
 login_manager.login_message = "Du måste logga in för att komma åt denna sida."
 
@@ -29,6 +31,7 @@ def create_app():
     login_manager.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
+    smorest_api.init_app(app)
 
     from app.models import User
 
@@ -42,6 +45,7 @@ def create_app():
     from app.routes.sok import sok_bp
     from app.routes.admin import admin_bp
     from app.routes.arkiv import arkiv_bp
+    from app.routes.api import blp as api_blp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(arenden_bp)
@@ -49,6 +53,9 @@ def create_app():
     app.register_blueprint(sok_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(arkiv_bp)
+
+    csrf.exempt(api_blp)
+    smorest_api.register_blueprint(api_blp)
 
     @app.after_request
     def lägg_till_säkerhetsheaders(response):

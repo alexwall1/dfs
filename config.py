@@ -57,3 +57,22 @@ class Config:
     # Maximal körtid i millisekunder för databasfrågor (PostgreSQL statement_timeout).
     # Skyddar mot DoS via tunga sökfrågor. 0 = ingen gräns.
     DB_QUERY_TIMEOUT_MS = int(os.environ.get("DB_QUERY_TIMEOUT_MS", "5000"))
+
+    # OpenAPI / Swagger UI (flask-smorest)
+    API_TITLE = "DFS2 API"
+    API_VERSION = "v1"
+    OPENAPI_VERSION = "3.0.3"
+    OPENAPI_URL_PREFIX = "/api"
+    OPENAPI_SWAGGER_UI_PATH = "/docs"
+    OPENAPI_SWAGGER_UI_URL = "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
+    OPENAPI_SPEC_OPTIONS = {
+        "components": {
+            "securitySchemes": {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "DFS2 API-nyckel",
+                }
+            }
+        }
+    }

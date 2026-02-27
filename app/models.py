@@ -244,6 +244,22 @@ def validera_losenord(losenord: str) -> list[str]:
     return fel
 
 
+class APIKey(db.Model):
+    __tablename__ = "api_key"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    key_hash = db.Column(db.String(64), unique=True, nullable=False)  # SHA-256 hex
+    label = db.Column(db.String(100), nullable=False)
+    aktiv = db.Column(db.Boolean, default=True, nullable=False)
+    skapad_datum = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    anvand_senast = db.Column(db.DateTime, nullable=True)
+
+    anvandare = db.relationship("User", backref="api_nycklar")
+
+
 def log_action(user_id, action, target_type=None, target_id=None, details=None):
     from flask import request
 
