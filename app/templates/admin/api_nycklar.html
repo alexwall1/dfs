@@ -50,6 +50,7 @@
                 {% if nyckel.aktiv %}
                 <form method="post" action="{{ url_for('admin.aterkalla_api_nyckel', nyckel_id=nyckel.id) }}"
                       onsubmit="return confirm('Återkalla API-nyckeln \'{{ nyckel.label }}\'?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">
                         <i class="bi bi-x-circle"></i> Återkalla
                     </button>
@@ -70,6 +71,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="{{ url_for('admin.ny_api_nyckel') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-header">
                     <h5 class="modal-title">Skapa ny API-nyckel</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
