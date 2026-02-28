@@ -41,6 +41,7 @@ TILLÅTNA_FILTYPER: dict[str, set[str]] = {
     "png": {"image/png"},
     "jpg": {"image/jpeg"},
     "jpeg": {"image/jpeg"},
+    "eml": {"message/rfc822", "text/plain"},
 }
 
 

@@ -15,6 +15,7 @@ from app.models import (
     Nummerserie,
     Installning,
     APIKey,
+    User,
     log_action,
 )
 from app.routes.handlingar import _validera_fil
@@ -130,6 +131,7 @@ class ArendeUtSchema(Schema):
     sekretess_grund = fields.Str(dump_only=True, allow_none=True)
     skapad_av = fields.Method("_get_skapad_av", dump_only=True)
     handlaggare = fields.Method("_get_handlaggare", dump_only=True)
+    handlaggare_id = fields.Int(dump_only=True, allow_none=True)
     skapad_datum = fields.DateTime(dump_only=True)
     andrad_datum = fields.DateTime(dump_only=True)
 
@@ -198,6 +200,16 @@ class PaginatedArendenSchema(Schema):
 class ArendeQuerySchema(Schema):
     status = fields.Str(load_default=None, allow_none=True)
     page = fields.Int(load_default=1, validate=validate.Range(min=1))
+
+
+class BrukareUtSchema(Schema):
+    id = fields.Int(dump_only=True)
+    role = fields.Str(dump_only=True)
+    active = fields.Bool(dump_only=True)
+
+
+class BrukareQuerySchema(Schema):
+    mejl = fields.Str(required=True)
 
 
 # ── Ärenden ───────────────────────────────────────────────────────────────────
@@ -610,3 +622,20 @@ def ladda_ner_fil(version_id):
         download_name=version.filnamn,
         mimetype=version.mime_type or "application/octet-stream",
     )
+
+
+# ── Brukare ───────────────────────────────────────────────────────────────────
+
+@blp.route("/brukare", methods=["GET"])
+@blp.doc(security=[{"BearerAuth": []}])
+@blp.arguments(BrukareQuerySchema, location="query")
+@blp.response(200, BrukareUtSchema)
+def hamta_brukare(query_args):
+    """Hämta en användare via e-postadress."""
+    _check_auth("admin", "registrator")
+
+    mejl = query_args["mejl"]
+    user = User.query.filter_by(email=mejl, deleted=False, active=True).first()
+    if not user:
+        smorest_abort(404, message="Ingen användare med den e-postadressen.")
+    return user

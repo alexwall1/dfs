@@ -33,6 +33,71 @@ services:
     volumes:
       - .:/app
 
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [local-llm]   # Only started when AI_BACKEND=ollama; skip with OpenRouter
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./ollama/entrypoint.sh:/entrypoint.sh:ro
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s   # Täcker modellnedladdning vid första start
+
+  ai-registrator:
+    build: ./ai-registrator
+    environment:
+      AI_BACKEND: ${AI_BACKEND:-ollama}          # "ollama" | "openrouter"
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-meta-llama/llama-3.2-3b-instruct}
+      DFS2_BASE_URL: http://app:5000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    secrets:
+      - dfs2_api_key
+      - ai_api_key
+      - openrouter_api_key
+    volumes:
+      - ai_registrator_data:/data
+    depends_on:
+      app:
+        condition: service_started
+    # When AI_BACKEND=ollama, start the stack with:
+    #   docker compose --profile local-llm up -d
+    # When AI_BACKEND=openrouter, omit the profile (ollama service won't start).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  mail-worker:
+    build: ./mail-worker
+    environment:
+      IMAP_HOST: ${IMAP_HOST}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USER: ${IMAP_USER}
+      IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_FROM: ${SMTP_FROM}
+      AI_REGISTRATOR_URL: http://ai-registrator:8000
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    secrets:
+      - imap_password
+      - smtp_password
+      - ai_api_key
+    depends_on:
+      ai-registrator:
+        condition: service_healthy
+
 secrets:
   db_password:
     file: ./secrets/db_password.txt
@@ -40,6 +105,18 @@ secrets:
     file: ./secrets/secret_key.txt
   admin_password:
     file: ./secrets/admin_password.txt
+  imap_password:
+    file: ./secrets/imap_password.txt
+  smtp_password:
+    file: ./secrets/smtp_password.txt
+  ai_api_key:
+    file: ./secrets/ai_api_key.txt
+  dfs2_api_key:
+    file: ./secrets/dfs2_api_key.txt
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key.txt
 
 volumes:
   pgdata:
+  ollama_data:
+  ai_registrator_data:

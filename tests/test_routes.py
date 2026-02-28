@@ -1,5 +1,6 @@
 """Integrationstester för routes/vyer."""
 
+import hashlib
 import io
 import json
 from datetime import date
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, Installning, User, Kategori
+from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, Installning, User, Kategori, APIKey
 from tests.conftest import skapa_user, logga_in
 
 # Patchar magic.from_buffer i handlingar-modulen så att tester
@@ -2315,3 +2316,83 @@ class TestObservator:
         resp = client.get("/sok/?mening=Publikt")
         html = resp.data.decode()
         assert "DNR-OBS-003" in html
+
+
+# ── API: GET /api/v1/brukare ──────────────────────────────────────────────────
+
+
+def _skapa_api_nyckel(db, user, raw_key="test-api-key-123"):
+    """Skapar en APIKey kopplad till user och returnerar (api_key_obj, raw_key)."""
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    api_key = APIKey(user_id=user.id, key_hash=key_hash, label="Testnyckel", aktiv=True)
+    db.session.add(api_key)
+    db.session.flush()
+    return api_key, raw_key
+
+
+class TestApiBrukare:
+    def test_hamta_brukare_via_mejl(self, client, db):
+        """Hittar användare via e-post och returnerar korrekt roll."""
+        user = skapa_user(db, username="reg1", role="registrator", email="reg@example.com")
+        _, raw_key = _skapa_api_nyckel(db, user)
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/brukare",
+            query_string={"mejl": "reg@example.com"},
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "username" not in data
+        assert data["role"] == "registrator"
+        assert data["active"] is True
+        assert "id" in data
+
+    def test_hamta_brukare_okand_mejl(self, client, db):
+        """Returnerar 404 för okänd e-postadress."""
+        user = skapa_user(db, username="reg2", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, user)
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/brukare",
+            query_string={"mejl": "ingen@example.com"},
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 404
+
+    def test_hamta_brukare_inaktivt_konto_returnerar_404(self, client, db):
+        """Inaktivt konto syns inte — returnerar 404."""
+        caller = skapa_user(db, username="reg3", role="registrator", email="reg3@example.com")
+        _, raw_key = _skapa_api_nyckel(db, caller)
+        skapa_user(db, username="inaktiv1", role="handlaggare", email="inaktiv@example.com", active=False)
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/brukare",
+            query_string={"mejl": "inaktiv@example.com"},
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 404
+
+    def test_hamta_brukare_nekas_for_handlaggare(self, client, db):
+        """Handläggare (fel roll på API-nyckeln) får 403."""
+        user = skapa_user(db, username="hl1", role="handlaggare", email="hl@example.com")
+        _, raw_key = _skapa_api_nyckel(db, user)
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/brukare",
+            query_string={"mejl": "hl@example.com"},
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 403
+
+    def test_hamta_brukare_krav_api_nyckel(self, client, db):
+        """Returnerar 401 utan API-nyckel."""
+        resp = client.get(
+            "/api/v1/brukare",
+            query_string={"mejl": "vem@example.com"},
+        )
+        assert resp.status_code == 401
