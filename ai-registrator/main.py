@@ -151,12 +151,22 @@ def _format_confirmation_message(proposed: dict, session_id: str) -> str:
     ]
     if kommentar:
         lines.append(f"  Kommentar:     {kommentar}")
+    lines.append("")
+    if proposed.get("arende_id"):
+        lines += [
+            "Svara på detta mejl med:",
+            "  - 'ja' för att bekräfta och registrera handlingen",
+            "  - nya instruktioner för att justera förslaget",
+            "  - 'avbryt' för att avbryta",
+        ]
+    else:
+        lines += [
+            "Inget ärende hittades – handlingen kan inte registreras ännu.",
+            "Svara på detta mejl med:",
+            "  - ett diarienummer (t.ex. DNR-2026-0001) för att koppla handlingen till ett ärende",
+            "  - 'avbryt' för att avbryta",
+        ]
     lines += [
-        "",
-        "Svara på detta mejl med:",
-        "  - 'ja' för att bekräfta och registrera handlingen",
-        "  - nya instruktioner för att justera förslaget",
-        "  - 'avbryt' för att avbryta",
         "",
         f"[REF:{session_id}]",
     ]
