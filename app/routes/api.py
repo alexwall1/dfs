@@ -443,6 +443,19 @@ def skapa_handling(arende_id):
     sekretess_raw = request.form.get("sekretess", "false").lower()
     sekretess = sekretess_raw in ("true", "1", "on")
 
+    skapad_av_id = user.id
+    if user.role in ("admin", "registrator"):
+        reg_id_raw = request.form.get("registrerad_av_id", "").strip()
+        if reg_id_raw:
+            try:
+                reg_id = int(reg_id_raw)
+            except ValueError:
+                smorest_abort(422, message="Ogiltigt värde för 'registrerad_av_id'.")
+            reg_user = User.query.filter_by(id=reg_id, deleted=False, active=True).first()
+            if not reg_user:
+                smorest_abort(422, message="Användaren i 'registrerad_av_id' finns inte eller är inaktiv.")
+            skapad_av_id = reg_id
+
     handling = Handling(
         arende_id=arende.id,
         typ=typ,
@@ -451,7 +464,7 @@ def skapa_handling(arende_id):
         mottagare=request.form.get("mottagare", "").strip() or None,
         beskrivning=beskrivning,
         sekretess=sekretess,
-        skapad_av=user.id,
+        skapad_av=skapad_av_id,
     )
     db.session.add(handling)
     db.session.flush()
@@ -478,13 +491,11 @@ def skapa_handling(arende_id):
         )
         db.session.add(version)
 
-    log_action(
-        user.id,
-        "skapa_handling",
-        "Handling",
-        handling.id,
-        {"arende": arende.diarienummer, "typ": handling.typ, "via": "api"},
-    )
+    arende.andrad_datum = datetime.now(timezone.utc)
+    log_extra = {"arende": arende.diarienummer, "typ": handling.typ, "via": "api"}
+    if skapad_av_id != user.id:
+        log_extra["on_behalf_of"] = skapad_av_id
+    log_action(user.id, "skapa_handling", "Handling", handling.id, log_extra)
     db.session.commit()
     return handling
 

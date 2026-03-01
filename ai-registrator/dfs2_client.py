@@ -90,6 +90,7 @@ def skapa_handling(
     fil_data: bytes | None = None,
     fil_namn: str | None = None,
     fil_mime: str | None = None,
+    registrerad_av_id: int | None = None,
 ) -> dict:
     """Skapar en ny handling på ett ärende via DFS2 REST API (multipart/form-data)."""
     form_data: dict = {
@@ -103,6 +104,8 @@ def skapa_handling(
         form_data["avsandare"] = avsandare
     if mottagare:
         form_data["mottagare"] = mottagare
+    if registrerad_av_id is not None:
+        form_data["registrerad_av_id"] = str(registrerad_av_id)
 
     files = None
     if fil_data and fil_namn:

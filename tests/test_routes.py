@@ -793,6 +793,50 @@ class TestHandlingarRoutes:
         assert handling.versioner.count() == 2
 
 
+# ── andrad_datum uppdateras vid handling-ändringar ───────────────────
+
+
+class TestAndradDatumHandling:
+    def test_andrad_datum_uppdateras_vid_ny_handling(self, client, db):
+        import time
+        user = skapa_user(db, username="reg2", role="registrator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        foret = arende.andrad_datum
+        time.sleep(0.05)
+        logga_in(client, "reg2")
+
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            client.post(
+                f"/handlingar/ny/{arende.id}",
+                data={
+                    "typ": "inkommande",
+                    "beskrivning": "Test",
+                    "fil": (io.BytesIO(b"data"), "test.pdf"),
+                },
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+
+        db.session.refresh(arende)
+        assert arende.andrad_datum > foret
+
+    def test_andrad_datum_uppdateras_vid_ta_bort_handling(self, client, db):
+        import time
+        user = skapa_user(db, username="reg3", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        db.session.commit()
+        foret = arende.andrad_datum
+        time.sleep(0.05)
+        logga_in(client, "reg3")
+
+        client.post(f"/handlingar/{handling.id}/ta-bort", follow_redirects=True)
+
+        db.session.refresh(arende)
+        assert arende.andrad_datum > foret
+
+
 # ── Filstorlekskontroll ───────────────────────────────────────────────
 
 

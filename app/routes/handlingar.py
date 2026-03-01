@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 import io
 import magic
 from werkzeug.utils import secure_filename
@@ -154,6 +154,7 @@ def ny(arende_id):
             )
             db.session.add(version)
 
+        arende.andrad_datum = datetime.now(timezone.utc)
         log_action(
             current_user.id,
             "skapa_handling",
@@ -288,6 +289,7 @@ def ta_bort(handling_id):
     handling = Handling.query.get_or_404(handling_id)
     arende_id = handling.arende_id
     handling.deleted = True
+    handling.arende.andrad_datum = datetime.now(timezone.utc)
     log_action(
         current_user.id,
         "ta_bort_handling",

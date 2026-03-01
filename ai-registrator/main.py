@@ -357,6 +357,7 @@ def handle_reply(
                 fil_data=fil_data,
                 fil_namn=fil_namn,
                 fil_mime=fil_mime,
+                registrerad_av_id=int(session.user_id) if session.user_id else None,
             )
         except Exception as e:
             logger.error(f"Failed to create handling in DFS2: {e}")
