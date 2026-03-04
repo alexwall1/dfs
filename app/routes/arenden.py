@@ -1,5 +1,8 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+import io
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, send_file
 from flask_login import login_required, current_user
+import openpyxl
+from openpyxl.styles import Font
 
 from app import db
 from app.models import Arende, User, Nummerserie, Installning, log_action
@@ -141,6 +144,51 @@ def byt_status(arende_id):
     db.session.commit()
     flash(f"Status ändrad till {arende.status_label}.", "success")
     return redirect(url_for("arenden.visa", arende_id=arende.id))
+
+
+@arenden_bp.route("/exportera")
+@role_required("admin", "registrator")
+def exportera():
+    status = request.args.get("status")
+    query = Arende.query.filter_by(deleted=False)
+    if status and status in Arende.STATUS_LABELS:
+        query = query.filter_by(status=status)
+    arenden = query.order_by(Arende.skapad_datum.desc()).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    status_label = Arende.STATUS_LABELS.get(status, "Alla") if status else "Alla"
+    ws.title = status_label[:31]
+
+    headers = ["Diarienummer", "Ärende", "Status", "Handläggare", "Skapad"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for a in arenden:
+        ws.append([
+            a.diarienummer,
+            a.arende_mening,
+            a.status_label,
+            a.handlaggare.full_name if a.handlaggare else "",
+            a.skapad_datum.strftime("%Y-%m-%d"),
+        ])
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or "")) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 60)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"arenden-{status or 'alla'}.xlsx"
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @arenden_bp.route("/<int:arende_id>/ta-bort", methods=["POST"])

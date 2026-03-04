@@ -1,6 +1,6 @@
 # DFS
 
-Ett enkelt och öppet (GPL) diarieföringssystem. Stödjer olika användarroller, diarieföring av olika filversioner kopplade till handlingar, API m.m. (Se användarhandbok.) 
+Ett enkelt och öppet (GPL) diarieföringssystem. Stödjer olika användarroller, diarieföring av olika filversioner kopplade till handlingar, API, en AI-registrator som diarieför enligt mejl-instruktioner, export till Excel m.m. (Se användarhandbok.) 
 
 ![alt text](https://github.com/alexwall1/dfs/blob/main/screenshot.png?raw=true)
 

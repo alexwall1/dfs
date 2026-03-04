@@ -132,7 +132,8 @@ def logout():
 @auth_bp.route("/dashboard")
 @login_required
 def dashboard():
-    from app.models import Arende
+    from app.models import Arende, Handling
+    from sqlalchemy import or_
 
     stats = {
         "oppna": Arende.query.filter_by(status="oppnat", deleted=False).count(),
@@ -159,8 +160,75 @@ def dashboard():
         .all()
     )
 
+    sokresultat = None
+    q = request.args.get("q", "").strip()
+    if q:
+        qt = q[:100]
+        base = Arende.query.filter_by(deleted=False)
+
+        if current_user.role in ("admin", "registrator"):
+            handling_ids = (
+                Handling.query.filter(
+                    Handling.beskrivning.ilike(f"%{qt}%"),
+                    Handling.deleted == False,
+                )
+                .with_entities(Handling.arende_id)
+                .distinct()
+            )
+            sokresultat = (
+                base.filter(
+                    or_(
+                        Arende.arende_mening.ilike(f"%{qt}%"),
+                        Arende.id.in_(handling_ids),
+                    )
+                )
+                .order_by(Arende.skapad_datum.desc())
+                .limit(50)
+                .all()
+            )
+        elif current_user.role == "handlaggare":
+            agda_ids = (
+                Arende.query.filter_by(
+                    handlaggare_id=current_user.id, deleted=False
+                ).with_entities(Arende.id)
+            )
+            handling_ids = (
+                Handling.query.filter(
+                    Handling.beskrivning.ilike(f"%{qt}%"),
+                    Handling.deleted == False,
+                    Handling.arende_id.in_(agda_ids),
+                )
+                .with_entities(Handling.arende_id)
+                .distinct()
+            )
+            sokresultat = (
+                base.filter(
+                    or_(
+                        Arende.arende_mening.ilike(f"%{qt}%"),
+                        Arende.id.in_(handling_ids),
+                    )
+                )
+                .order_by(Arende.skapad_datum.desc())
+                .limit(50)
+                .all()
+            )
+        else:
+            if current_user.role == "observator":
+                base = base.filter(Arende.sekretess == False)
+            sokresultat = (
+                base.filter(Arende.arende_mening.ilike(f"%{qt}%"))
+                .order_by(Arende.skapad_datum.desc())
+                .limit(50)
+                .all()
+            )
+
     return render_template(
-        "dashboard.html", stats=stats, mina_arenden=mina_arenden, senaste=senaste
+        "dashboard.html",
+        stats=stats,
+        mina_arenden=mina_arenden,
+        senaste=senaste,
+        sokresultat=sokresultat,
+        q=q,
     )
 
 
