@@ -24,6 +24,8 @@ services:
       - "127.0.0.1:10001:10001"
     env_file:
       - .env
+    environment:
+      DB_PORT: "10002"
     secrets:
       - db_password
       - secret_key
