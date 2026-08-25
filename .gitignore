@@ -1,10 +1,14 @@
 .claude
 .CLAUDE.md
 __pycache__
+.secrets/
 .pytest_cache
 .env
 .venv
-secrets/*.txt
+secrets/
+prompts/
+opencode.json
+*.gz
 *.pyc
 seed_testdata.py
 testdata.db
