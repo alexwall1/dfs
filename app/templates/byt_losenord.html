@@ -12,6 +12,11 @@
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
+                        <label for="gammalt_losenord" class="form-label">Nuvarande lösenord *</label>
+                        <input type="password" class="form-control" id="gammalt_losenord"
+                               name="gammalt_losenord" required autocomplete="current-password">
+                    </div>
+                    <div class="mb-3">
                         <label for="nytt_losenord" class="form-label">Nytt lösenord *</label>
                         <input type="password" class="form-control" id="nytt_losenord"
                                name="nytt_losenord" required autocomplete="new-password">

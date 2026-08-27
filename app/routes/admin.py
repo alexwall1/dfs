@@ -28,7 +28,7 @@ def anvandare():
 @role_required("admin")
 def ny_anvandare():
     if request.method == "POST":
-        username = request.form["username"].strip()
+        username = request.form.get("username", "").strip()
         if User.query.filter_by(username=username).first():
             flash("Användarnamnet är redan taget.", "danger")
             return render_template("admin/ny_anvandare.html")
@@ -40,11 +40,18 @@ def ny_anvandare():
                 flash(msg, "danger")
             return render_template("admin/ny_anvandare.html")
 
+        role = request.form.get("role", "")
+        if role not in User.TILLATNA_ROLLER:
+            flash(
+                f"Ogiltig roll. Tillåtna: {', '.join(User.TILLATNA_ROLLER)}.", "danger"
+            )
+            return render_template("admin/ny_anvandare.html")
+
         user = User(
             username=username,
-            full_name=request.form["full_name"].strip(),
+            full_name=request.form.get("full_name", "").strip(),
             email=request.form.get("email", "").strip() or None,
-            role=request.form["role"],
+            role=role,
             maste_byta_losenord="maste_byta_losenord" in request.form,
         )
         user.set_password(losenord)
@@ -112,9 +119,16 @@ def redigera_anvandare(user_id):
         return redirect(url_for("admin.anvandare"))
 
     if request.method == "POST":
-        user.full_name = request.form["full_name"].strip()
+        role = request.form.get("role", "")
+        if role not in User.TILLATNA_ROLLER:
+            flash(
+                f"Ogiltig roll. Tillåtna: {', '.join(User.TILLATNA_ROLLER)}.", "danger"
+            )
+            return render_template("admin/redigera_anvandare.html", user=user)
+
+        user.full_name = request.form.get("full_name", "").strip()
         user.email = request.form.get("email", "").strip() or None
-        user.role = request.form["role"]
+        user.role = role
         user.active = "active" in request.form
         user.maste_byta_losenord = "maste_byta_losenord" in request.form
 
@@ -146,7 +160,7 @@ def redigera_anvandare(user_id):
 def nummerserier():
     if request.method == "POST":
         nytt_prefix = request.form.get("standardprefix", "").strip().upper() or "DNR"
-        installning = Installning.query.get("standardprefix")
+        installning = db.session.get(Installning, "standardprefix")
         if installning:
             installning.value = nytt_prefix
         else:
@@ -247,7 +261,7 @@ def ny_api_nyckel():
         flash("Etikett är obligatoriskt.", "danger")
         return redirect(url_for("admin.api_nycklar"))
 
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user or user.deleted:
         flash("Användaren finns inte.", "danger")
         return redirect(url_for("admin.api_nycklar"))

@@ -45,6 +45,7 @@ class User(UserMixin, db.Model):
         "arkivarie": "Arkivarie",
         "observator": "Observatör",
     }
+    TILLATNA_ROLLER = tuple(ROLE_LABELS.keys())
 
     @property
     def role_label(self):
@@ -101,6 +102,23 @@ class Arende(db.Model):
     @property
     def allowed_transitions(self):
         return self.STATUS_FLOW.get(self.status, [])
+
+    @classmethod
+    def sekretess_filter(cls, query, user):
+        """Applicera sekretessfilter på en Arende-query baserat på användarens roll."""
+        from sqlalchemy import or_
+
+        if user.role == "observator":
+            return query.filter(cls.sekretess == False)  # noqa: E712
+        if user.role == "handlaggare":
+            return query.filter(
+                or_(cls.sekretess == False, cls.handlaggare_id == user.id)  # noqa: E712
+            )
+        if user.role == "arkivarie":
+            return query.filter(
+                or_(cls.sekretess == False, cls.status == "arkiverat")  # noqa: E712
+            )
+        return query  # admin, registrator
 
 
 handling_kategori = db.Table(
@@ -188,8 +206,26 @@ class AuditLog(db.Model):
         db.DateTime, default=lambda: datetime.now(timezone.utc)
     )
     ip_address = db.Column(db.String(45))
+    prev_hash = db.Column(db.String(64), nullable=True)  # SHA-256 hex
+    entry_hash = db.Column(db.String(64), nullable=True)  # SHA-256 hex
 
     user = db.relationship("User")
+
+    @classmethod
+    def verify_chain(cls, start_id=1):
+        """Verifiera hashkedjan.
+
+        Returnerar en lista med (id, orsak) för brutna/ändrade poster.
+        """
+        broken = []
+        prev_hash = None
+        for entry in cls.query.order_by(cls.id.asc()).filter(cls.id >= start_id).all():
+            if entry.prev_hash != prev_hash:
+                broken.append((entry.id, "prev_hash_mismatch"))
+            elif entry.entry_hash != _compute_entry_hash(prev_hash, _audit_payload(entry)):
+                broken.append((entry.id, "hash_mismatch"))
+            prev_hash = entry.entry_hash
+        return broken
 
 
 class Installning(db.Model):
@@ -200,7 +236,7 @@ class Installning(db.Model):
 
     @classmethod
     def get(cls, key, default=None):
-        row = cls.query.get(key)
+        row = db.session.get(cls, key)
         return row.value if row else default
 
 
@@ -218,14 +254,40 @@ class Nummerserie(db.Model):
 
     @classmethod
     def next_number(cls, prefix):
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+
         now = datetime.now(timezone.utc)
-        serie = cls.query.filter_by(prefix=prefix, year=now.year).first()
-        if not serie:
-            serie = cls(prefix=prefix, year=now.year, current_number=0)
+
+        # Atomisk inkrement: UPDATE ... SET current_number = current_number + 1
+        # ... RETURNING current_number (hindrar race condition under gunicorn).
+        result = db.session.execute(
+            text(
+                "UPDATE nummerserier "
+                "SET current_number = current_number + 1 "
+                "WHERE prefix = :prefix AND year = :year "
+                "RETURNING current_number"
+            ),
+            {"prefix": prefix, "year": now.year},
+        )
+        row = result.first()
+
+        if row is None:
+            # Första numret för året — skapa raden atomiskt.
+            # Fånga UniqueConstraint("prefix","year") vid kapplöpning.
+            serie = cls(prefix=prefix, year=now.year, current_number=1)
             db.session.add(serie)
-        serie.current_number += 1
-        db.session.flush()
-        return f"{prefix}-{now.year}-{serie.current_number:04d}"
+            try:
+                db.session.flush()
+            except IntegrityError:
+                db.session.rollback()
+                # En annan worker hann före — gör om inkrementet.
+                return cls.next_number(prefix)
+            nxt = 1
+        else:
+            nxt = row[0]
+
+        return f"{prefix}-{now.year}-{nxt:04d}"
 
 
 def validera_losenord(losenord: str) -> list[str]:
@@ -260,6 +322,42 @@ class APIKey(db.Model):
     anvandare = db.relationship("User", backref="api_nycklar")
 
 
+def _compute_entry_hash(prev_hash, payload):
+    """SHA-256 över (prev_hash + canonical JSON av payload)."""
+    import hashlib
+    import json
+
+    canon = json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
+    h = hashlib.sha256()
+    h.update((prev_hash or "").encode("utf-8"))
+    h.update(b"|")
+    h.update(canon.encode("utf-8"))
+    return h.hexdigest()
+
+
+def _audit_payload(entry):
+    """Det oföränderliga innehållet som ska hashas."""
+    ts = entry.timestamp
+    if ts is not None:
+        # SQLite lagrar datetimes utan tzinfo — normalisera till UTC så att
+        # hashen blir identisk oavsett om posten nyligen skapats eller lästs
+        # tillbaka från databasen.
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        ts = ts.isoformat()
+    return {
+        "user_id": entry.user_id,
+        "action": entry.action,
+        "target_type": entry.target_type,
+        "target_id": entry.target_id,
+        "details": entry.details,
+        "timestamp": ts,
+        "ip_address": entry.ip_address,
+    }
+
+
 def log_action(user_id, action, target_type=None, target_id=None, details=None):
     from flask import request
 
@@ -272,3 +370,14 @@ def log_action(user_id, action, target_type=None, target_id=None, details=None):
         ip_address=request.remote_addr if request else None,
     )
     db.session.add(entry)
+    db.session.flush()
+    # Hämta föregående posts hash (senaste id < detta id)
+    prev = (
+        AuditLog.query.filter(AuditLog.id < entry.id)
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    prev_hash = prev.entry_hash if prev else None
+    entry.prev_hash = prev_hash
+    entry.entry_hash = _compute_entry_hash(prev_hash, _audit_payload(entry))
+    # Ingen extra flush krävs; commit sker av anroparen.

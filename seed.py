@@ -38,7 +38,7 @@ def seed():
             admin = User(
                 username="admin",
                 full_name="Systemadministratör",
-                email="admin@example.com",
+                email=os.environ.get("ADMIN_EMAIL", "admin@example.com"),
                 role="admin",
                 maste_byta_losenord=True,
             )

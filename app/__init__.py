@@ -90,5 +90,5 @@ def _registrera_fragetimeout(app):
     @event.listens_for(db.engine, "connect")
     def _set_timeout(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
-        cursor.execute(f"SET statement_timeout = {timeout_ms}")
+        cursor.execute("SET statement_timeout = %s", (timeout_ms,))
         cursor.close()

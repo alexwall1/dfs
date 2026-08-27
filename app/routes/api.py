@@ -1,12 +1,11 @@
 import hashlib
-import io
 from datetime import datetime, timezone, date as date_type
 
-from flask import request, g, send_file
+from flask import request, g, Response
 from flask_smorest import Blueprint as SmorestBlueprint, abort as smorest_abort
 from marshmallow import Schema, fields, validate
 
-from app import db
+from app import db, limiter
 from app.models import (
     Arende,
     Handling,
@@ -215,6 +214,7 @@ class BrukareQuerySchema(Schema):
 # ── Ärenden ───────────────────────────────────────────────────────────────────
 
 @blp.route("/arenden", methods=["GET"])
+@limiter.limit("120 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.arguments(ArendeQuerySchema, location="query")
 @blp.response(200, PaginatedArendenSchema)
@@ -254,6 +254,7 @@ def lista_arenden(query_args):
 
 
 @blp.route("/arenden", methods=["POST"])
+@limiter.limit("30 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.arguments(ArendeSkapaSchema)
 @blp.response(201, ArendeUtSchema)
@@ -289,6 +290,7 @@ def skapa_arende(body):
 
 
 @blp.route("/arenden/<int:arende_id>", methods=["GET"])
+@limiter.limit("120 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.response(200, ArendeDetaljSchema)
 def hamta_arende(arende_id):
@@ -304,6 +306,7 @@ def hamta_arende(arende_id):
 
 
 @blp.route("/arenden/<int:arende_id>", methods=["PUT"])
+@limiter.limit("30 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.arguments(ArendeRedigeraSchema)
 @blp.response(200, ArendeUtSchema)
@@ -315,6 +318,7 @@ def redigera_arende(body, arende_id):
     if arende.deleted:
         smorest_abort(404, message="Ärendet finns inte.")
 
+    gammal_sekretess = arende.sekretess
     if "arende_mening" in body:
         arende.arende_mening = body["arende_mening"].strip()
     if "sekretess" in body:
@@ -324,24 +328,30 @@ def redigera_arende(body, arende_id):
     if "handlaggare_id" in body:
         arende.handlaggare_id = body.get("handlaggare_id")
 
+    log_details = {"diarienummer": arende.diarienummer, "via": "api"}
+    if "sekretess" in body and arende.sekretess != gammal_sekretess:
+        log_details["sekretess_fran"] = gammal_sekretess
+        log_details["sekretess_till"] = arende.sekretess
+        log_details["sekretess_andrad"] = True
     log_action(
         user.id,
         "redigera_arende",
         "Arende",
         arende.id,
-        {"diarienummer": arende.diarienummer, "via": "api"},
+        log_details,
     )
     db.session.commit()
     return arende
 
 
 @blp.route("/arenden/<int:arende_id>/status", methods=["POST"])
+@limiter.limit("30 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.arguments(StatusByteSchema)
 @blp.response(200, ArendeUtSchema)
 def byt_status(body, arende_id):
     """Byt status på ett ärende."""
-    user = _check_auth("admin", "registrator", "handlaggare")
+    user = _check_auth("admin", "registrator", "handlaggare", "arkivarie")
 
     arende = Arende.query.get_or_404(arende_id)
     if arende.deleted:
@@ -351,6 +361,8 @@ def byt_status(body, arende_id):
         smorest_abort(403, message="Du är inte tilldelad detta ärende.")
 
     ny_status = body["ny_status"]
+    if user.role == "arkivarie" and ny_status != "arkiverat":
+        smorest_abort(403, message="Arkivarie får endast arkivera ärenden.")
     if ny_status not in arende.allowed_transitions:
         smorest_abort(
             422,
@@ -376,6 +388,7 @@ def byt_status(body, arende_id):
 # ── Handlingar ────────────────────────────────────────────────────────────────
 
 @blp.route("/arenden/<int:arende_id>/handlingar", methods=["POST"])
+@limiter.limit("30 per minute")
 @blp.doc(
     security=[{"BearerAuth": []}],
     requestBody={
@@ -501,6 +514,7 @@ def skapa_handling(arende_id):
 
 
 @blp.route("/handlingar/<int:handling_id>", methods=["GET"])
+@limiter.limit("120 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.response(200, HandlingUtSchema)
 def hamta_handling(handling_id):
@@ -508,7 +522,7 @@ def hamta_handling(handling_id):
     _check_auth()
 
     handling = Handling.query.get_or_404(handling_id)
-    if handling.deleted:
+    if handling.deleted or handling.arende.deleted:
         smorest_abort(404, message="Handlingen finns inte.")
     if not _sekretess_handling(handling):
         smorest_abort(403, message="Handlingen är sekretessbelagd.")
@@ -516,6 +530,7 @@ def hamta_handling(handling_id):
 
 
 @blp.route("/handlingar/<int:handling_id>", methods=["PUT"])
+@limiter.limit("30 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.arguments(HandlingRedigeraSchema)
 @blp.response(200, HandlingUtSchema)
@@ -527,6 +542,7 @@ def redigera_handling(body, handling_id):
     if handling.deleted:
         smorest_abort(404, message="Handlingen finns inte.")
 
+    gammal_sekretess = handling.sekretess
     if "typ" in body:
         handling.typ = body["typ"]
     if "beskrivning" in body:
@@ -544,18 +560,24 @@ def redigera_handling(body, handling_id):
         valda = Kategori.query.filter(Kategori.id.in_(ids)).all() if ids else []
         handling.kategorier = valda
 
+    log_details = {"arende": handling.arende.diarienummer, "via": "api"}
+    if "sekretess" in body and handling.sekretess != gammal_sekretess:
+        log_details["sekretess_fran"] = gammal_sekretess
+        log_details["sekretess_till"] = handling.sekretess
+        log_details["sekretess_andrad"] = True
     log_action(
         user.id,
         "redigera_handling",
         "Handling",
         handling.id,
-        {"arende": handling.arende.diarienummer, "via": "api"},
+        log_details,
     )
     db.session.commit()
     return handling
 
 
 @blp.route("/handlingar/<int:handling_id>/versioner", methods=["POST"])
+@limiter.limit("30 per minute")
 @blp.doc(
     security=[{"BearerAuth": []}],
     requestBody={
@@ -620,24 +642,51 @@ def ladda_upp_version(handling_id):
 
 
 @blp.route("/versioner/<int:version_id>/fil", methods=["GET"])
+@limiter.limit("120 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 def ladda_ner_fil(version_id):
     """Ladda ned en fil (returnerar binär data)."""
-    _check_auth()
+    user = _check_auth()
 
     version = DocumentVersion.query.get_or_404(version_id)
+    if version.handling.deleted or version.handling.arende.deleted:
+        smorest_abort(404, message="Handlingen finns inte.")
     if not _sekretess_handling(version.handling):
         smorest_abort(403, message="Handlingen är sekretessbelagd.")
-    return send_file(
-        io.BytesIO(version.fildata),
-        download_name=version.filnamn,
+    log_action(
+        user.id,
+        "ladda_ner_version",
+        "DocumentVersion",
+        version.id,
+        {
+            "filnamn": version.filnamn,
+            "arende": version.handling.arende.diarienummer,
+            "handling_id": version.handling_id,
+            "version_nr": version.version_nr,
+            "ip": request.remote_addr,
+            "via": "api",
+        },
+    )
+    db.session.commit()
+
+    def generate():
+        chunk = 64 * 1024
+        for i in range(0, len(version.fildata), chunk):
+            yield version.fildata[i : i + chunk]
+
+    return Response(
+        generate(),
         mimetype=version.mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename={version.filnamn}"
+        },
     )
 
 
 # ── Brukare ───────────────────────────────────────────────────────────────────
 
 @blp.route("/brukare", methods=["GET"])
+@limiter.limit("120 per minute")
 @blp.doc(security=[{"BearerAuth": []}])
 @blp.arguments(BrukareQuerySchema, location="query")
 @blp.response(200, BrukareUtSchema)

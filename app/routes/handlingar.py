@@ -1,5 +1,4 @@
 from datetime import date, datetime, timezone
-import io
 import magic
 from werkzeug.utils import secure_filename
 
@@ -10,7 +9,7 @@ from flask import (
     url_for,
     flash,
     request,
-    send_file,
+    Response,
     abort,
 )
 from flask_login import login_required, current_user
@@ -18,8 +17,9 @@ from flask_login import login_required, current_user
 from flask import current_app
 
 from app import db
-from app.models import Arende, Handling, DocumentVersion, Kategori, log_action
+from app.models import Handling, DocumentVersion, Kategori, log_action
 from app.auth import role_required
+from app.services import hamta_aktivt_arende, hamta_aktiv_handling, _parse_datum
 
 
 def _max_fil_storlek_bytes() -> int:
@@ -66,10 +66,23 @@ def _validera_fil(fil) -> tuple[str, bytes, str]:
             f"Filtypen .{andelse} är inte tillåten. Tillåtna filtyper: {tillåtna}."
         )
 
-    fildata = fil.read()
     max_bytes = _max_fil_storlek_bytes()
-    if len(fildata) > max_bytes:
-        max_mb = max_bytes // (1024 * 1024)
+    max_mb = max_bytes // (1024 * 1024)
+
+    # Kontrollera storleken INNAN vi läser hela filen i minne. Werkzeug
+    # FileStorage har en .stream (SpooledTemporaryFile) vars längd vi kan
+    # kolla med seek/tell utan att materialisera innehållet.
+    stream = getattr(fil, "stream", None)
+    if stream is not None:
+        stream.seek(0, 2)
+        if stream.tell() > max_bytes:
+            raise ValueError(f"Filen är för stor. Maximal filstorlek är {max_mb} MB.")
+        stream.seek(0)
+
+    fildata = fil.read()
+
+    # Fallback för test-fakes och andra objekt utan .stream.
+    if stream is None and len(fildata) > max_bytes:
         raise ValueError(f"Filen är för stor. Maximal filstorlek är {max_mb} MB.")
 
     detekterad_mime = magic.from_buffer(fildata, mime=True)
@@ -100,7 +113,7 @@ handlingar_bp = Blueprint("handlingar", __name__, url_prefix="/handlingar")
 @handlingar_bp.route("/ny/<int:arende_id>", methods=["GET", "POST"])
 @role_required("admin", "registrator", "handlaggare")
 def ny(arende_id):
-    arende = Arende.query.get_or_404(arende_id)
+    arende = hamta_aktivt_arende(arende_id)
 
     if current_user.role == "handlaggare" and arende.handlaggare_id != current_user.id:
         abort(403)
@@ -118,16 +131,34 @@ def ny(arende_id):
                 kategorier = Kategori.query.order_by(Kategori.namn).all()
                 return render_template("handlingar/ny.html", arende=arende, kategorier=kategorier)
 
+        kategorier = Kategori.query.order_by(Kategori.namn).all()
+
         datum_str = request.form.get("datum_inkom")
-        datum_inkom = date.fromisoformat(datum_str) if datum_str else date.today()
+        if datum_str:
+            datum_inkom = _parse_datum(datum_str)
+            if datum_inkom is None:
+                flash(f"Ogiltigt datum för 'datum_inkom': {datum_str}", "danger")
+                return render_template("handlingar/ny.html", arende=arende, kategorier=kategorier)
+        else:
+            datum_inkom = date.today()
+
+        typ = request.form.get("typ", "").strip()
+        if typ not in Handling.TYP_LABELS:
+            flash("Ogiltig handlingstyp.", "danger")
+            return render_template("handlingar/ny.html", arende=arende, kategorier=kategorier)
+
+        beskrivning = request.form.get("beskrivning", "").strip()
+        if not beskrivning:
+            flash("Beskrivning är obligatorisk.", "danger")
+            return render_template("handlingar/ny.html", arende=arende, kategorier=kategorier)
 
         handling = Handling(
             arende_id=arende.id,
-            typ=request.form["typ"],
+            typ=typ,
             datum_inkom=datum_inkom,
             avsandare=request.form.get("avsandare", "").strip() or None,
             mottagare=request.form.get("mottagare", "").strip() or None,
-            beskrivning=request.form["beskrivning"].strip(),
+            beskrivning=beskrivning,
             sekretess="sekretess" in request.form,
             skapad_av=current_user.id,
         )
@@ -173,7 +204,7 @@ def ny(arende_id):
 @handlingar_bp.route("/<int:handling_id>")
 @login_required
 def visa(handling_id):
-    handling = Handling.query.get_or_404(handling_id)
+    handling = hamta_aktiv_handling(handling_id)
     if not _har_sekretessbehorighet(handling):
         abort(403)
     versioner = handling.versioner.all()
@@ -185,7 +216,9 @@ def visa(handling_id):
 @handlingar_bp.route("/<int:handling_id>/ny-version", methods=["POST"])
 @role_required("admin", "registrator", "handlaggare")
 def ny_version(handling_id):
-    handling = Handling.query.get_or_404(handling_id)
+    handling = hamta_aktiv_handling(handling_id)
+    if handling.arende.deleted:
+        abort(404)
 
     if current_user.role == "handlaggare" and handling.arende.handlaggare_id != current_user.id:
         abort(403)
@@ -233,25 +266,77 @@ def ny_version(handling_id):
 @login_required
 def ladda_ner(version_id):
     version = DocumentVersion.query.get_or_404(version_id)
+    if version.handling.deleted or version.handling.arende.deleted:
+        abort(404)
     if not _har_sekretessbehorighet(version.handling):
         abort(403)
-    return send_file(
-        io.BytesIO(version.fildata),
-        download_name=version.filnamn,
+    log_action(
+        current_user.id,
+        "ladda_ner_version",
+        "DocumentVersion",
+        version.id,
+        {
+            "filnamn": version.filnamn,
+            "arende": version.handling.arende.diarienummer,
+            "handling_id": version.handling_id,
+            "version_nr": version.version_nr,
+            "ip": request.remote_addr,
+        },
+    )
+    db.session.commit()
+
+    def generate():
+        chunk = 64 * 1024
+        for i in range(0, len(version.fildata), chunk):
+            yield version.fildata[i:i + chunk]
+
+    return Response(
+        generate(),
         mimetype=version.mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename={version.filnamn}"
+        },
     )
 
 
 @handlingar_bp.route("/<int:handling_id>/redigera", methods=["GET", "POST"])
 @role_required("admin", "registrator")
 def redigera(handling_id):
-    handling = Handling.query.get_or_404(handling_id)
+    handling = hamta_aktiv_handling(handling_id)
 
     if request.method == "POST":
         datum_str = request.form.get("datum_inkom")
-        handling.typ = request.form["typ"]
-        handling.beskrivning = request.form["beskrivning"].strip()
-        handling.datum_inkom = date.fromisoformat(datum_str) if datum_str else None
+        gammal_sekretess = handling.sekretess
+
+        kategorier = Kategori.query.order_by(Kategori.namn).all()
+        valda_ids = {k.id for k in handling.kategorier.all()}
+        redigera_ctx = {
+            "handling": handling,
+            "kategorier": kategorier,
+            "valda_ids": valda_ids,
+        }
+
+        typ = request.form.get("typ", "").strip()
+        if typ not in Handling.TYP_LABELS:
+            flash("Ogiltig handlingstyp.", "danger")
+            return render_template("handlingar/redigera.html", **redigera_ctx)
+
+        beskrivning = request.form.get("beskrivning", "").strip()
+        if not beskrivning:
+            flash("Beskrivning är obligatorisk.", "danger")
+            return render_template("handlingar/redigera.html", **redigera_ctx)
+
+        if datum_str:
+            datum_inkom = _parse_datum(datum_str)
+            if datum_inkom is None:
+                flash(f"Ogiltigt datum för 'datum_inkom': {datum_str}", "danger")
+                return render_template("handlingar/redigera.html", **redigera_ctx)
+        else:
+            datum_inkom = None
+
+        handling.typ = typ
+        handling.beskrivning = beskrivning
+        handling.datum_inkom = datum_inkom
         handling.avsandare = request.form.get("avsandare", "").strip() or None
         handling.mottagare = request.form.get("mottagare", "").strip() or None
         handling.sekretess = "sekretess" in request.form
@@ -262,12 +347,17 @@ def redigera(handling_id):
         ).all()
         handling.kategorier = valda_kategorier
 
+        log_details = {"arende": handling.arende.diarienummer}
+        if handling.sekretess != gammal_sekretess:
+            log_details["sekretess_fran"] = gammal_sekretess
+            log_details["sekretess_till"] = handling.sekretess
+            log_details["sekretess_andrad"] = True
         log_action(
             current_user.id,
             "redigera_handling",
             "Handling",
             handling.id,
-            {"arende": handling.arende.diarienummer},
+            log_details,
         )
         db.session.commit()
         flash("Handlingen har uppdaterats.", "success")
@@ -286,7 +376,7 @@ def redigera(handling_id):
 @handlingar_bp.route("/<int:handling_id>/ta-bort", methods=["POST"])
 @role_required("admin", "registrator")
 def ta_bort(handling_id):
-    handling = Handling.query.get_or_404(handling_id)
+    handling = hamta_aktiv_handling(handling_id)
     arende_id = handling.arende_id
     handling.deleted = True
     handling.arende.andrad_datum = datetime.now(timezone.utc)

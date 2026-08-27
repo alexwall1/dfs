@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, render_template, request, Response
 from flask_login import current_user
+from sqlalchemy.orm import joinedload
 
 from app import db
 from app.models import Arende, AuditLog, log_action
@@ -43,7 +44,9 @@ def index():
 @arkiv_bp.route("/exportera/<int:arende_id>")
 @role_required("admin", "arkivarie")
 def exportera(arende_id):
-    arende = Arende.query.get_or_404(arende_id)
+    arende = Arende.query.options(
+        joinedload(Arende.skapare), joinedload(Arende.handlaggare)
+    ).get_or_404(arende_id)
 
     handlingar_data = []
     for h in arende.handlingar.filter_by(deleted=False).all():

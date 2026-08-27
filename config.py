@@ -37,7 +37,20 @@ def _bygg_database_url() -> str:
 
 
 class Config:
-    SECRET_KEY = _las_hemlighet("SECRET_KEY", "secret_key") or secrets.token_hex(32)
+    # Miljöindikator: production (standard), development, test.
+    DFS2_ENV = os.environ.get("DFS2_ENV", "production").lower()
+
+    _secret = _las_hemlighet("SECRET_KEY", "secret_key")
+    if _secret:
+        SECRET_KEY = _secret
+    elif DFS2_ENV == "production":
+        raise RuntimeError(
+            "SECRET_KEY saknas i produktion. Sätt miljövariabeln "
+            "SECRET_KEY eller Docker Secret 'secret_key'."
+        )
+    else:
+        # development/test — tillåt genererad nyckel men varna.
+        SECRET_KEY = secrets.token_hex(32)
     SQLALCHEMY_DATABASE_URI = _bygg_database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MAX_FIL_STORLEK_MB = int(os.environ.get("MAX_FIL_STORLEK_MB", "20"))

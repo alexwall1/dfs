@@ -7,6 +7,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
+import openpyxl
 
 from app.models import Arende, Handling, DocumentVersion, AuditLog, Nummerserie, Installning, User, Kategori, APIKey
 from tests.conftest import skapa_user, logga_in
@@ -1050,6 +1051,72 @@ class TestSokRoutes:
         html = resp.data.decode()
         assert "DNR-STVAL-OPN" in html
         assert "DNR-STVAL-PAG" not in html
+
+
+class TestSokSekretessHandlingar:
+    """Uppgift 6 — sök får inte läcka sekretesshandlingar via
+    avsandare/beskrivning."""
+
+    def test_sok_observator_hittar_inte_sekretess_handling_via_beskrivning(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        reg = skapa_user(db, username="reg_sok", role="registrator")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-SEK-BESK-001")
+        _skapa_handling(db, arende, reg, beskrivning="UNIK-HEMLIG-BESKRIVNING", sekretess=True)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/sok/?beskrivning=UNIK-HEMLIG-BESKRIVNING")
+        html = resp.data.decode()
+        assert "DNR-SEK-BESK-001" not in html
+
+    def test_sok_handlaggare_hittar_egen_sekretess_handling_men_inte_andras(self, client, db):
+        reg = skapa_user(db, username="reg_sok2", role="registrator")
+        a = skapa_user(db, username="handl_a2", role="handlaggare")
+        b = skapa_user(db, username="handl_b2", role="handlaggare")
+        arende_a = _skapa_arende(db, reg, diarienummer="DNR-HLA-SEK", handlaggare_id=a.id)
+        _skapa_handling(db, arende_a, reg, beskrivning="AVS-UNIK-HEMLIG-A", sekretess=True)
+        arende_b = _skapa_arende(db, reg, diarienummer="DNR-HLB-SEK", handlaggare_id=b.id)
+        _skapa_handling(db, arende_b, reg, beskrivning="AVS-UNIK-HEMLIG-B", sekretess=True)
+        db.session.commit()
+
+        # B söker → 0 träffar
+        logga_in(client, "handl_b2")
+        resp = client.get("/sok/?beskrivning=AVS-UNIK-HEMLIG-A")
+        assert "DNR-HLA-SEK" not in resp.data.decode()
+
+        # Logga ut B innan A loggar in (samma testklient kan bara ha en session).
+        client.get("/logout")
+
+        # A söker på sin egen → 1 träff
+        logga_in(client, "handl_a2")
+        resp = client.get("/sok/?beskrivning=AVS-UNIK-HEMLIG-A")
+        assert "DNR-HLA-SEK" in resp.data.decode()
+
+    def test_sok_admin_hittar_alla(self, client, db):
+        reg = skapa_user(db, username="reg_admin_sok", role="registrator")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-ADM-SEK")
+        _skapa_handling(db, arende, reg, beskrivning="ADM-UNIK-HEMLIG", sekretess=True)
+        skapa_user(db, username="admin_sok", role="admin")
+        db.session.commit()
+        logga_in(client, "admin_sok")
+        resp = client.get("/sok/?beskrivning=ADM-UNIK-HEMLIG")
+        assert "DNR-ADM-SEK" in resp.data.decode()
+
+    def test_sok_arkivarie_hittar_sekretess_bara_arkiverade(self, client, db):
+        reg = skapa_user(db, username="reg_ark_sok", role="registrator")
+        ark = skapa_user(db, username="ark_sok", role="arkivarie")
+        arende_ark = _skapa_arende(db, reg, diarienummer="DNR-ARK-SEK", status="arkiverat")
+        _skapa_handling(db, arende_ark, reg, beskrivning="ARK-UNIK-HEMLIG", sekretess=True)
+        arende_pag = _skapa_arende(db, reg, diarienummer="DNR-PAG-SEK", status="pagaende")
+        _skapa_handling(db, arende_pag, reg, beskrivning="PAG-UNIK-HEMLIG", sekretess=True)
+        db.session.commit()
+        logga_in(client, "ark_sok")
+
+        resp = client.get("/sok/?beskrivning=ARK-UNIK-HEMLIG")
+        assert "DNR-ARK-SEK" in resp.data.decode()
+
+        resp = client.get("/sok/?beskrivning=PAG-UNIK-HEMLIG")
+        assert "DNR-PAG-SEK" not in resp.data.decode()
 
 
 # ── Inputvalidering – enhetstester för sok-hjälpfunktioner ───────────
@@ -2107,6 +2174,80 @@ class TestRedigeraHandling:
         assert resp.status_code == 404
 
 
+class TestSekretessandringLoggning:
+    """Uppgift 8 — sekretessflaggändring ska loggas med fran/till-diff."""
+
+    def test_sekretessandring_loggas_med_diff_handling(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, sekretess=False)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={
+                "typ": "inkommande",
+                "beskrivning": "Original",
+                "sekretess": "on",
+            },
+            follow_redirects=True,
+        )
+
+        logg = AuditLog.query.filter_by(
+            action="redigera_handling", target_id=handling.id
+        ).first()
+        assert logg is not None
+        assert logg.details["sekretess_fran"] is False
+        assert logg.details["sekretess_till"] is True
+        assert logg.details["sekretess_andrad"] is True
+
+    def test_sekretessandring_loggas_med_diff_arende(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user, sekretess=False)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        client.post(
+            f"/arenden/{arende.id}/redigera",
+            data={
+                "arende_mening": "Uppdaterad mening",
+                "sekretess": "on",
+            },
+            follow_redirects=True,
+        )
+
+        logg = AuditLog.query.filter_by(
+            action="redigera_arende", target_id=arende.id
+        ).first()
+        assert logg is not None
+        assert logg.details["sekretess_fran"] is False
+        assert logg.details["sekretess_till"] is True
+        assert logg.details["sekretess_andrad"] is True
+
+    def test_sekretess_oforandrad_loggas_utan_diff(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, sekretess=False)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={
+                "typ": "upprattad",
+                "beskrivning": "Ändrad beskrivning",
+            },
+            follow_redirects=True,
+        )
+
+        logg = AuditLog.query.filter_by(
+            action="redigera_handling", target_id=handling.id
+        ).first()
+        assert logg is not None
+        assert "sekretess_andrad" not in logg.details
+
+
 # ── Standardprefix ────────────────────────────────────────────────────
 
 
@@ -2361,6 +2502,70 @@ class TestObservator:
         html = resp.data.decode()
         assert "DNR-OBS-003" in html
 
+    def test_observator_lista_exkluderar_sekretess_arenden(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        _skapa_arende(db, user, diarienummer="DNR-LIST-OPP", arende_mening="Offentligt ärende", sekretess=False)
+        _skapa_arende(db, user, diarienummer="DNR-LIST-SEK", arende_mening="Sekretessärende", sekretess=True)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/arenden/")
+        html = resp.data.decode()
+        assert resp.status_code == 200
+        assert "DNR-LIST-OPP" in html
+        assert "DNR-LIST-SEK" not in html
+
+    def test_observator_dashboard_senaste_exkluderar_sekretess(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        _skapa_arende(db, user, diarienummer="DNR-DSH-OPN", arende_mening="Offentligt ärende", sekretess=False)
+        _skapa_arende(db, user, diarienummer="DNR-DSH-SEK", arende_mening="Sekretessärende", sekretess=True)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/dashboard")
+        html = resp.data.decode()
+        assert resp.status_code == 200
+        assert "DNR-DSH-OPN" in html
+        assert "DNR-DSH-SEK" not in html
+
+    def test_observator_dashboard_stats_exkluderar_sekretess(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        _skapa_arende(db, user, diarienummer="DNR-STA-OPN", status="oppnat", sekretess=False)
+        _skapa_arende(db, user, diarienummer="DNR-STA-SEK", status="oppnat", sekretess=True)
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get("/dashboard")
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        # Sekretessärendet ska inte synas i dashboardens senaste-lista.
+        assert "DNR-STA-SEK" not in html
+        # Stats-räknaren (öppna) ska endast räkna icke-sekretessbelagda.
+        obs_user = User.query.filter_by(username="obs").first()
+        oppna = (
+            Arende.sekretess_filter(
+                Arende.query.filter_by(deleted=False), obs_user
+            )
+            .filter_by(status="oppnat")
+            .count()
+        )
+        assert oppna == 1
+
+    def test_handlaggare_lista_ser_egen_sekretess_men_inte_andras(self, client, db):
+        reg = skapa_user(db, username="reg_hl", role="registrator")
+        handl_a = skapa_user(db, username="handl_a", role="handlaggare")
+        handl_b = skapa_user(db, username="handl_b", role="handlaggare")
+        _skapa_arende(db, reg, diarienummer="DNR-HLA-001", arende_mening="A:s sekretessärende", handlaggare_id=handl_a.id, sekretess=True)
+        _skapa_arende(db, reg, diarienummer="DNR-HLB-002", arende_mening="B:s sekretessärende", handlaggare_id=handl_b.id, sekretess=True)
+        db.session.commit()
+
+        # Handläggare A ser sitt eget sekretessärende men inte B:s.
+        logga_in(client, "handl_a")
+        resp = client.get("/arenden/")
+        html = resp.data.decode()
+        assert "DNR-HLA-001" in html
+        assert "DNR-HLB-002" not in html
+
 
 # ── API: GET /api/v1/brukare ──────────────────────────────────────────────────
 
@@ -2440,3 +2645,1335 @@ class TestApiBrukare:
             query_string={"mejl": "vem@example.com"},
         )
         assert resp.status_code == 401
+
+
+# ── Uppgift 3: Mjuk borttagning respekteras i redigera/status/ny-version ─────
+
+
+class TestMjukBorttagning:
+    """Tester för att mjuk-borttagna ärenden/handlingar ger 404 i redigera/status/ny-version."""
+
+    def test_redigera_borttaget_arende_ger_404(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        arende = _skapa_arende(db, admin)
+        arende.deleted = True
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/redigera",
+            data={"arende_mening": "Uppdaterad"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 404
+
+    def test_byt_status_borttaget_arende_ger_404(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        arende = _skapa_arende(db, admin, status="oppnat")
+        arende.deleted = True
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "pagaende"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 404
+
+    def test_ny_version_pa_borttagen_handling_ger_404(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        handling.deleted = True
+        db.session.commit()
+        logga_in(client, "reg")
+
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            resp = client.post(
+                f"/handlingar/{handling.id}/ny-version",
+                data={"fil": (io.BytesIO(b"data"), "v2.pdf")},
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        assert resp.status_code == 404
+
+    def test_redigera_borttagen_handling_ger_404(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        handling.deleted = True
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande", "beskrivning": "Uppdaterad"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 404
+
+    def test_ta_bort_arende_idempotent_ger_404(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        arende = _skapa_arende(db, admin)
+        db.session.commit()
+        logga_in(client, "admin")
+
+        # Första borttagningen lyckas
+        resp1 = client.post(
+            f"/arenden/{arende.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp1.status_code == 200
+        db.session.refresh(arende)
+        assert arende.deleted is True
+
+        # Andra försöket ska ge 404 (idempotent → ej längre tillgängligt)
+        resp2 = client.post(
+            f"/arenden/{arende.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp2.status_code == 404
+
+    def test_ladda_ner_version_pa_borttagen_handling_ger_404(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        handling.deleted = True
+        version = _skapa_version(db, handling, user)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.get(f"/handlingar/ladda-ner/{version.id}")
+        assert resp.status_code == 404
+
+    def test_ny_handling_pa_borttaget_arende_ger_404(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        arende.deleted = True
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "inkommande", "beskrivning": "Test"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 404
+
+
+# ── Uppgift 4: Nedladdning loggas i granskningslogg ──────────────────────────
+
+
+class TestNedladdningLoggas:
+    """Tester för att filnedladdning spåras i AuditLog."""
+
+    def test_ladda_ner_loggas_i_audit_log(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        version = _skapa_version(db, handling, user, fildata=b"PDF-data")
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.get(f"/handlingar/ladda-ner/{version.id}")
+        assert resp.status_code == 200
+        assert resp.data == b"PDF-data"
+
+        logg = AuditLog.query.filter_by(
+            action="ladda_ner_version",
+            user_id=user.id,
+            target_type="DocumentVersion",
+            target_id=version.id,
+        ).first()
+        assert logg is not None
+        assert logg.details["filnamn"] == "test.pdf"
+        assert logg.details["handling_id"] == handling.id
+
+    def test_ladda_ner_nekas_och_loggas_inte_for_observator_sekretess(self, client, db):
+        user = skapa_user(db, username="obs", role="observator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, sekretess=True)
+        version = _skapa_version(db, handling, user, fildata=b"hemligt")
+        db.session.commit()
+        logga_in(client, "obs")
+
+        resp = client.get(f"/handlingar/ladda-ner/{version.id}")
+        assert resp.status_code == 403
+
+        # Ingen nedladdning ska ha loggats
+        assert (
+            AuditLog.query.filter_by(
+                action="ladda_ner_version", target_id=version.id
+            ).count()
+            == 0
+        )
+
+    def test_api_ladda_ner_fil_loggas(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user)
+        version = _skapa_version(db, handling, user, fildata=b"API-data")
+        _, raw_key = _skapa_api_nyckel(db, user, raw_key="test-ladda-ner-key-1")
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/versioner/{version.id}/fil",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        assert resp.data == b"API-data"
+
+        logg = AuditLog.query.filter_by(
+            action="ladda_ner_version",
+            user_id=user.id,
+            target_type="DocumentVersion",
+            target_id=version.id,
+        ).first()
+        assert logg is not None
+        assert logg.details.get("via") == "api"
+
+
+# ── Uppgift 5: Arkivarie kan arkivera ärenden ────────────────────────────────
+
+
+class TestArkivarieArkiverar:
+    """Tester för att arkivarien kan arkivera avslutade ärenden, men inte annat."""
+
+    def test_arkivarie_kan_arkivera_avslutat_arende(self, client, db):
+        ark = skapa_user(db, username="ark", role="arkivarie")
+        arende = _skapa_arende(db, ark, status="avslutat")
+        db.session.commit()
+        logga_in(client, "ark")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "arkiverat"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        db.session.refresh(arende)
+        assert arende.status == "arkiverat"
+
+        logg = AuditLog.query.filter_by(
+            action="byt_status",
+            user_id=ark.id,
+            target_id=arende.id,
+        ).first()
+        assert logg is not None
+        assert logg.details["till"] == "arkiverat"
+
+    def test_arkivarie_nekas_annan_status_andring(self, client, db):
+        ark = skapa_user(db, username="ark", role="arkivarie")
+        arende = _skapa_arende(db, ark, status="oppnat")
+        db.session.commit()
+        logga_in(client, "ark")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "pagaende"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 403
+
+        db.session.refresh(arende)
+        assert arende.status == "oppnat"
+
+    def test_arkivarie_kan_inte_arkivera_oppnat_arende(self, client, db):
+        ark = skapa_user(db, username="ark", role="arkivarie")
+        arende = _skapa_arende(db, ark, status="oppnat")
+        db.session.commit()
+        logga_in(client, "ark")
+
+        resp = client.post(
+            f"/arenden/{arende.id}/status",
+            data={"ny_status": "arkiverat"},
+            follow_redirects=True,
+        )
+        # Ogiltig övergång → redirect med flash, status ändras inte
+        assert resp.status_code == 200
+        assert "Ogiltig" in resp.data.decode()
+
+        db.session.refresh(arende)
+        assert arende.status == "oppnat"
+
+    def test_api_arkivarie_kan_arkivera(self, client, db):
+        ark = skapa_user(db, username="ark_api", role="arkivarie")
+        arende = _skapa_arende(db, ark, status="avslutat")
+        _, raw_key = _skapa_api_nyckel(db, ark, raw_key="test-ark-nyckel-1")
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/status",
+            data=json.dumps({"ny_status": "arkiverat"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+
+        db.session.refresh(arende)
+        assert arende.status == "arkiverat"
+
+    def test_api_arkivarie_nekas_annan_status(self, client, db):
+        ark = skapa_user(db, username="ark_api2", role="arkivarie")
+        arende = _skapa_arende(db, ark, status="oppnat")
+        _, raw_key = _skapa_api_nyckel(db, ark, raw_key="test-ark-nyckel-2")
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/status",
+            data=json.dumps({"ny_status": "pagaende"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 403
+
+        db.session.refresh(arende)
+        assert arende.status == "oppnat"
+
+
+# ── Formulärvalidering – felmeddelande (200) i stället för 500 ───────
+
+
+class TestFormularValidering:
+    """Uppgift E — formulär ska visa felmeddelande (200), inte krascha med 500."""
+
+    def test_ny_arende_utan_arende_mening_visar_fel(self, client, db):
+        skapa_user(db, username="reg", role="registrator")
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post("/arenden/ny", data={}, follow_redirects=True)
+        assert resp.status_code == 200
+        assert "obligatorisk" in resp.data.decode().lower()
+        assert Arende.query.count() == 0
+
+    def test_ny_handling_ogiltigt_datum_visar_fel(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={
+                "typ": "inkommande",
+                "beskrivning": "Testhandling",
+                "datum_inkom": "foobar",
+            },
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "datum" in resp.data.decode().lower()
+        assert Handling.query.count() == 0
+
+    def test_ny_handling_ogiltig_typ_visar_fel(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/ny/{arende.id}",
+            data={"typ": "foobar", "beskrivning": "Testhandling"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "Ogiltig" in resp.data.decode()
+        assert Handling.query.count() == 0
+
+    def test_redigera_handling_saknad_beskrivning_visar_fel(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        arende = _skapa_arende(db, user)
+        handling = _skapa_handling(db, arende, user, beskrivning="Original")
+        db.session.commit()
+        logga_in(client, "reg")
+
+        resp = client.post(
+            f"/handlingar/{handling.id}/redigera",
+            data={"typ": "inkommande"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "obligatorisk" in resp.data.decode().lower()
+        db.session.refresh(handling)
+        assert handling.beskrivning == "Original"
+
+    def test_ny_anvandare_ogiltig_roll_visar_fel(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/anvandare/ny",
+            data={
+                "username": "felroll",
+                "full_name": "Fel Roll",
+                "email": "fel@test.se",
+                "role": "superuser",
+                "password": "Hemligt!Pass123",
+            },
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "Ogiltig roll" in resp.data.decode()
+        assert User.query.filter_by(username="felroll").first() is None
+
+    def test_redigera_anvandare_ogiltig_roll_visar_fel(self, client, db):
+        skapa_user(db, username="adm", role="admin")
+        target = skapa_user(db, username="mal", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "adm")
+
+        resp = client.post(
+            f"/admin/anvandare/{target.id}/redigera",
+            data={"full_name": "Nytt Namn", "role": "foobar", "active": "on"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "Ogiltig roll" in resp.data.decode()
+        db.session.refresh(target)
+        assert target.role == "handlaggare"
+        assert target.full_name == "Test Testsson"
+
+    def test_validera_fil_storlekscheck_fore_lasning(self, app):
+        import types
+
+        from app.routes.handlingar import _validera_fil
+
+        max_bytes = app.config["MAX_FIL_STORLEK_MB"] * 1024 * 1024
+        fake_fil = types.SimpleNamespace(
+            filename="stor.pdf",
+            stream=io.BytesIO(b"x" * (max_bytes + 1)),
+            read=lambda: (_ for _ in ()).throw(
+                AssertionError("read() anropades trots att storleken borde ha stoppat filen")
+            ),
+        )
+
+        with app.app_context():
+            with pytest.raises(ValueError, match="för stor"):
+                _validera_fil(fake_fil)
+
+    def test_dashboard_sok_ger_samma_resultat_som_sok_route(self, client, db):
+        import re
+
+        user = skapa_user(db, username="admin", role="admin")
+        _skapa_arende(db, user, diarienummer="DNR-DSOK-1", arende_mening="UNIKTSOKORD ärende ett")
+        _skapa_arende(db, user, diarienummer="DNR-DSOK-2", arende_mening="UNIKTSOKORD ärende två")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        dash = client.get("/dashboard?q=UNIKTSOKORD")
+        sok_resp = client.get("/sok/?mening=UNIKTSOKORD")
+        assert dash.status_code == 200
+        assert sok_resp.status_code == 200
+
+        def _arende_ids(html):
+            return set(re.findall(r"/arenden/(\d+)", html))
+
+        dashboard_ids = _arende_ids(dash.data.decode())
+        sok_ids = _arende_ids(sok_resp.data.decode())
+
+        assert dashboard_ids == sok_ids
+        assert len(dashboard_ids) == 2
+
+
+# ── Uppgift 23: Exportera ärenden till Excel ──────────────────────────
+
+
+def _parse_xlsx(resp):
+    """Läser in ett exporterat .xlsx-svar och returnerar workbook-objektet."""
+    return openpyxl.load_workbook(io.BytesIO(resp.data))
+
+
+class TestExporteraArenden:
+    def test_exportera_kraver_admin_eller_registrator(self, client, db):
+        skapa_user(db, username="hl", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "hl")
+
+        resp = client.get("/arenden/exportera")
+        assert resp.status_code in (302, 403)
+
+    def test_exportera_returnerar_xlsx(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/arenden/exportera")
+        assert resp.status_code == 200
+        assert "spreadsheetml" in resp.content_type
+        assert resp.data[:2] == b"PK"
+
+    def test_exportera_filtrerar_pa_status(self, client, db):
+        user = skapa_user(db, username="admin", role="admin")
+        _skapa_arende(db, user, diarienummer="DNR-EXP-OPP", status="oppnat")
+        _skapa_arende(db, user, diarienummer="DNR-EXP-AVS", status="avslutat")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/arenden/exportera?status=avslutat")
+        wb = _parse_xlsx(resp)
+        rows = list(wb.active.iter_rows(values_only=True))
+        data = rows[1:]  # skippa rubrikraden
+        assert len(data) == 1
+        assert data[0][0] == "DNR-EXP-AVS"
+
+    def test_exportera_innehaller_rubriker(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/arenden/exportera")
+        wb = _parse_xlsx(resp)
+        rubriker = [c.value for c in wb.active[1]]
+        assert rubriker == ["Diarienummer", "Ärende", "Status", "Handläggare", "Skapad"]
+
+    def test_exportera_exkluderar_borttagna_arenden(self, client, db):
+        user = skapa_user(db, username="admin", role="admin")
+        _skapa_arende(db, user, diarienummer="DNR-LEV-1")
+        borttaget = _skapa_arende(db, user, diarienummer="DNR-BORT-1")
+        borttaget.deleted = True
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/arenden/exportera")
+        wb = _parse_xlsx(resp)
+        rows = list(wb.active.iter_rows(values_only=True))
+        diarienummer = [r[0] for r in rows[1:]]
+        assert "DNR-LEV-1" in diarienummer
+        assert "DNR-BORT-1" not in diarienummer
+
+
+# ── Uppgift 24: Byt lösenord ──────────────────────────────────────────
+
+
+class TestBytLosenord:
+    def test_byt_losenord_kraver_inloggning(self, client, db):
+        resp = client.get("/byt-losenord")
+        assert resp.status_code == 302
+
+    def test_byt_losenord_get_visar_formular(self, client, db):
+        skapa_user(db, username="user1")
+        db.session.commit()
+        logga_in(client, "user1")
+
+        resp = client.get("/byt-losenord")
+        assert resp.status_code == 200
+
+    def test_byt_losenord_korrekt_uppdaterar(self, client, db):
+        user = skapa_user(db, username="user1")
+        db.session.commit()
+        logga_in(client, "user1")
+
+        nytt = "Hemligt!Pass123"
+        resp = client.post(
+            "/byt-losenord",
+            data={
+                "gammalt_losenord": "lösenord123",
+                "nytt_losenord": nytt,
+                "bekraftelse": nytt,
+            },
+        )
+        assert resp.status_code == 302
+        db.session.refresh(user)
+        assert user.check_password(nytt) is True
+        assert AuditLog.query.filter_by(action="byta_losenord").first() is not None
+
+    def test_byt_losenord_svagt_losenord_visar_fel(self, client, db):
+        user = skapa_user(db, username="user1")
+        db.session.commit()
+        logga_in(client, "user1")
+
+        resp = client.post(
+            "/byt-losenord",
+            data={
+                "gammalt_losenord": "lösenord123",
+                "nytt_losenord": "Kort1!",
+                "bekraftelse": "Kort1!",
+            },
+        )
+        assert resp.status_code == 200
+        assert "12 tecken" in resp.data.decode()
+        db.session.refresh(user)
+        assert user.check_password("lösenord123") is True
+        assert user.check_password("Kort1!") is False
+
+    def test_byt_losenord_fel_gammalt_losenord(self, client, db):
+        user = skapa_user(db, username="user1")
+        db.session.commit()
+        logga_in(client, "user1")
+
+        resp = client.post(
+            "/byt-losenord",
+            data={
+                "gammalt_losenord": "felgammalt",
+                "nytt_losenord": "Hemligt!Pass123",
+                "bekraftelse": "Hemligt!Pass123",
+            },
+        )
+        assert resp.status_code == 200
+        assert "Nuvarande lösenord är fel" in resp.data.decode()
+        db.session.refresh(user)
+        assert user.check_password("lösenord123") is True
+
+    def test_byt_losenord_avmarkerar_maste_byta(self, client, db):
+        user = skapa_user(db, username="user1", maste_byta_losenord=True)
+        db.session.commit()
+        logga_in(client, "user1")
+
+        nytt = "Hemligt!Pass123"
+        resp = client.post(
+            "/byt-losenord",
+            data={
+                "gammalt_losenord": "lösenord123",
+                "nytt_losenord": nytt,
+                "bekraftelse": nytt,
+            },
+        )
+        assert resp.status_code == 302
+        db.session.refresh(user)
+        assert user.maste_byta_losenord is False
+
+
+# ── Uppgift 25: Admin – nummerserier & API-nycklar ────────────────────
+
+
+class TestAdminNummerserier:
+    def test_nummerserier_get_kraver_admin(self, client, db):
+        skapa_user(db, username="hl", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "hl")
+
+        resp = client.get("/admin/nummerserier")
+        assert resp.status_code in (302, 403)
+
+    def test_nummerserier_get_visar_serier(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/admin/nummerserier")
+        assert resp.status_code == 200
+
+    def test_nummerserier_post_andrar_standardprefix(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": "ABC"},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert Installning.get("standardprefix") == "ABC"
+        logg = AuditLog.query.filter_by(action="andra_standardprefix").first()
+        assert logg is not None
+        assert logg.details["prefix"] == "ABC"
+
+    def test_nummerserier_post_tom_prefix_anvander_default(self, client, db):
+        skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/nummerserier",
+            data={"standardprefix": ""},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert Installning.get("standardprefix") == "DNR"
+
+
+class TestAdminApiNycklar:
+    def test_api_nycklar_get_kraver_admin(self, client, db):
+        skapa_user(db, username="handlaggare", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "handlaggare")
+
+        resp = client.get("/admin/api-nycklar")
+        assert resp.status_code in (302, 403)
+
+    def test_api_nycklar_get_visar_befintliga_nycklar(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        _skapa_api_nyckel(db, admin)
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.get("/admin/api-nycklar")
+        assert resp.status_code == 200
+        assert "Testnyckel" in resp.data.decode()
+
+    def test_ny_api_nyckel_skapar_och_visar_raw_key(self, client, db):
+        import re
+
+        admin = skapa_user(db, username="admin", role="admin")
+        target = skapa_user(db, username="mal", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/api-nycklar/ny",
+            data={"label": "Min nyckel", "user_id": target.id},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        html = resp.data.decode()
+        m = re.search(r"visas bara en gång: (\S+)", html)
+        assert m is not None
+        raw = m.group(1)
+
+        nyckel = APIKey.query.filter_by(user_id=target.id).first()
+        assert nyckel is not None
+        assert nyckel.key_hash == hashlib.sha256(raw.encode()).hexdigest()
+        logg = AuditLog.query.filter_by(action="skapa_api_nyckel").first()
+        assert logg is not None
+
+    def test_ny_api_nyckel_utan_label_visar_fel(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/api-nycklar/ny",
+            data={"label": "", "user_id": admin.id},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "Etikett är obligatoriskt" in resp.data.decode()
+        assert APIKey.query.count() == 0
+
+    def test_ny_api_nyckel_ogiltig_user_visar_fel(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            "/admin/api-nycklar/ny",
+            data={"label": "Ogiltig", "user_id": 999},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert "Användaren finns inte" in resp.data.decode()
+        assert APIKey.query.count() == 0
+
+    def test_aterkalla_api_nyckel_satter_aktiv_false(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        nyckel, _ = _skapa_api_nyckel(db, admin)
+        db.session.commit()
+        logga_in(client, "admin")
+
+        resp = client.post(
+            f"/admin/api-nycklar/{nyckel.id}/aterkalla",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(nyckel)
+        assert nyckel.aktiv is False
+        assert AuditLog.query.filter_by(action="aterkalla_api_nyckel").first() is not None
+
+    def test_aterkallad_nyckel_fungerar_inte_i_api(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        nyckel, raw = _skapa_api_nyckel(db, user)
+        nyckel.aktiv = False
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 401
+
+
+# ── Uppgift 26: Sista admin-skydd ─────────────────────────────────────
+
+
+class TestSistaAdmin:
+    def test_ta_bort_sista_admin_nekas(self, client, db):
+        admin_a = skapa_user(db, username="adminA", role="admin")
+        admin_b = skapa_user(db, username="adminB", role="admin")
+        db.session.commit()
+        logga_in(client, "adminA")
+
+        # Ta bort B — OK eftersom A fortfarande finns
+        resp = client.post(
+            f"/admin/anvandare/{admin_b.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(admin_b)
+        assert admin_b.deleted is True
+
+        # A är nu sista aktiva admin — försök ta bort sig själv, nekas
+        resp = client.post(
+            f"/admin/anvandare/{admin_a.id}/ta-bort",
+            follow_redirects=True,
+        )
+        db.session.refresh(admin_a)
+        assert admin_a.deleted is False
+
+    def test_ta_bort_admin_nar_flera_finns_ok(self, client, db):
+        admin_a = skapa_user(db, username="adminA", role="admin")
+        admin_b = skapa_user(db, username="adminB", role="admin")
+        admin_c = skapa_user(db, username="adminC", role="admin")
+        db.session.commit()
+        logga_in(client, "adminA")
+
+        resp = client.post(
+            f"/admin/anvandare/{admin_b.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(admin_b)
+        assert admin_b.deleted is True
+
+    def test_ta_bort_sig_sjalv_nekas(self, client, db):
+        admin_a = skapa_user(db, username="adminA", role="admin")
+        db.session.commit()
+        logga_in(client, "adminA")
+
+        resp = client.post(
+            f"/admin/anvandare/{admin_a.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(admin_a)
+        assert admin_a.deleted is False
+
+    def test_ta_bort_inaktiv_admin_raknas_inte_sista(self, client, db):
+        admin_a = skapa_user(db, username="adminA", role="admin")
+        skapa_user(db, username="adminB", role="admin", active=False)
+        db.session.commit()
+        logga_in(client, "adminA")
+
+        resp = client.post(
+            f"/admin/anvandare/{admin_a.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        db.session.refresh(admin_a)
+        assert admin_a.deleted is False
+
+    def test_ta_bort_borttagen_anvandare_idempotent(self, client, db):
+        admin = skapa_user(db, username="adminA", role="admin")
+        target = skapa_user(db, username="mal", role="handlaggare")
+        db.session.commit()
+        logga_in(client, "adminA")
+
+        resp1 = client.post(
+            f"/admin/anvandare/{target.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp1.status_code == 200
+        db.session.refresh(target)
+        assert target.deleted is True
+
+        resp2 = client.post(
+            f"/admin/anvandare/{target.id}/ta-bort",
+            follow_redirects=True,
+        )
+        assert resp2.status_code == 200
+        assert "redan borttagen" in resp2.data.decode()
+        assert AuditLog.query.filter_by(action="ta_bort_anvandare").count() == 1
+
+
+# ── Uppgift 27: API-endpoints utöver /brukare ─────────────────────────
+
+
+class TestApi:
+    """Integrationstester för API-endpoints i /api/v1
+    (autentisering, ärenden, handlingar, versioner).
+
+    Befintliga tester som INTE dupliceras här:
+    - test_api_arkivarie_kan_arkivera / test_api_arkivarie_nekas_annan_status
+      (TestArkivarieArkiverar)
+    - test_api_ladda_ner_fil_loggas (TestNedladdningLoggas)
+    - test_hamta_brukare_nekas_for_handlaggare (TestApiBrukare)
+    """
+
+    # ── Autentisering ──────────────────────────────────────────────────
+
+    def test_api_utan_auth_header_ger_401(self, client, db):
+        resp = client.get("/api/v1/arenden")
+        assert resp.status_code == 401
+
+    def test_api_ogiltig_nyckel_ger_401(self, client, db):
+        skapa_user(db, username="reg", role="registrator")
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": "Bearer finns-inte-123"},
+        )
+        assert resp.status_code == 401
+
+    def test_api_inaktiv_nyckel_ger_401(self, client, db):
+        user = skapa_user(db, username="reg", role="registrator")
+        nyckel, raw = _skapa_api_nyckel(db, user, raw_key="test-api-inaktiv-1")
+        nyckel.aktiv = False
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": f"Bearer {raw}"},
+        )
+        assert resp.status_code == 401
+
+    def test_api_inaktiv_user_ger_401(self, client, db):
+        user = skapa_user(db, username="inaktiv", role="registrator", active=False)
+        _, raw_key = _skapa_api_nyckel(db, user, raw_key="test-api-inaktiv-user-1")
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 401
+
+    def test_api_borttagen_user_ger_401(self, client, db):
+        user = skapa_user(db, username="borttagen", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, user, raw_key="test-api-borttagen-user-1")
+        user.deleted = True
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 401
+
+    def test_api_otillracklig_roll_ger_403(self, client, db):
+        obs = skapa_user(db, username="obs", role="observator")
+        _, raw_key = _skapa_api_nyckel(db, obs, raw_key="test-api-obs-roll-1")
+        db.session.commit()
+
+        resp = client.post(
+            "/api/v1/arenden",
+            data=json.dumps({"arende_mening": "Ej tillåtet"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 403
+        assert Arende.query.count() == 0
+
+    # ── Ärenden ────────────────────────────────────────────────────────
+
+    def test_api_lista_arenden_paginering(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-paginering-1")
+        for i in range(25):
+            _skapa_arende(db, reg, diarienummer=f"DNR-API-PAG-{i:04d}")
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            query_string={"page": 2},
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total"] == 25
+        assert data["sida"] == 2
+        # per_page=20 i api.py → 25 ärenden ger 2 sidor, sida 2 har de resterande 5.
+        assert data["sidor"] == 2
+        assert len(data["arenden"]) == 5
+
+    def test_api_lista_arenden_sekretessfilter_observator(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        obs = skapa_user(db, username="obs", role="observator")
+        _, raw_key = _skapa_api_nyckel(db, obs, raw_key="test-api-sek-obs-1")
+        _skapa_arende(db, reg, diarienummer="DNR-API-OPPEN-1")
+        _skapa_arende(db, reg, diarienummer="DNR-API-HEMLIG-1", sekretess=True)
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        diarer = [a["diarienummer"] for a in resp.get_json()["arenden"]]
+        assert "DNR-API-OPPEN-1" in diarer
+        assert "DNR-API-HEMLIG-1" not in diarer
+
+    def test_api_lista_arenden_sekretessfilter_handlaggare(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        a = skapa_user(db, username="handl_a", role="handlaggare")
+        b = skapa_user(db, username="handl_b", role="handlaggare")
+        _, raw_key = _skapa_api_nyckel(db, a, raw_key="test-api-sek-handl-1")
+        _skapa_arende(db, reg, diarienummer="DNR-API-OPPEN-2")
+        _skapa_arende(
+            db, reg, diarienummer="DNR-API-EGEN-SEK", sekretess=True, handlaggare_id=a.id
+        )
+        _skapa_arende(
+            db, reg, diarienummer="DNR-API-ANNAN-SEK", sekretess=True, handlaggare_id=b.id
+        )
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/arenden",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        diarer = [x["diarienummer"] for x in resp.get_json()["arenden"]]
+        assert "DNR-API-OPPEN-2" in diarer
+        assert "DNR-API-EGEN-SEK" in diarer
+        assert "DNR-API-ANNAN-SEK" not in diarer
+
+    def test_api_skapa_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-skapa-1")
+        db.session.commit()
+
+        resp = client.post(
+            "/api/v1/arenden",
+            data=json.dumps({"arende_mening": "Nytt ärende via API"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["diarienummer"].startswith("DNR-")
+        assert data["arende_mening"] == "Nytt ärende via API"
+
+        arende = Arende.query.first()
+        assert arende is not None
+        logg = AuditLog.query.filter_by(
+            action="skapa_arende", target_id=arende.id
+        ).first()
+        assert logg is not None
+        assert logg.details.get("via") == "api"
+
+    def test_api_skapa_arende_admin_kan_satta_prefix(self, client, db):
+        admin = skapa_user(db, username="admin", role="admin")
+        _, raw_key = _skapa_api_nyckel(db, admin, raw_key="test-api-prefix-admin-1")
+        db.session.commit()
+
+        resp = client.post(
+            "/api/v1/arenden",
+            data=json.dumps({"arende_mening": "Prefix-test", "prefix": "TEST"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 201
+        assert resp.get_json()["diarienummer"].startswith("TEST-")
+
+    def test_api_skapa_arende_icke_admin_ignorerar_prefix(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-prefix-reg-1")
+        db.session.commit()
+
+        resp = client.post(
+            "/api/v1/arenden",
+            data=json.dumps({"arende_mening": "Prefix ignorerat", "prefix": "TEST"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 201
+        # Icke-admin får inte välja prefix → standardprefixet (DNR) används.
+        assert resp.get_json()["diarienummer"].startswith("DNR-")
+
+    def test_api_hamta_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-hamta-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-HAMTA-1")
+        handling = _skapa_handling(db, arende, reg, beskrivning="Bifogad handling")
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/arenden/{arende.id}",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["diarienummer"] == "DNR-API-HAMTA-1"
+        assert len(data["handlingar"]) == 1
+        assert data["handlingar"][0]["id"] == handling.id
+
+    def test_api_hamta_arende_borttagen_ger_404(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-hamta-borttagen-1")
+        arende = _skapa_arende(db, reg)
+        arende.deleted = True
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/arenden/{arende.id}",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 404
+
+    def test_api_hamta_arende_sekretess_ger_403_for_observator(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        obs = skapa_user(db, username="obs", role="observator")
+        _, raw_key = _skapa_api_nyckel(db, obs, raw_key="test-api-hamta-sek-1")
+        arende = _skapa_arende(
+            db, reg, diarienummer="DNR-API-HEMLIG-2", sekretess=True
+        )
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/arenden/{arende.id}",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 403
+
+    def test_api_redigera_arende(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-redigera-1")
+        arende = _skapa_arende(
+            db, reg, diarienummer="DNR-API-RED-1", arende_mening="Original"
+        )
+        db.session.commit()
+
+        resp = client.put(
+            f"/api/v1/arenden/{arende.id}",
+            data=json.dumps({"arende_mening": "Uppdaterad via API"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["arende_mening"] == "Uppdaterad via API"
+        db.session.refresh(arende)
+        assert arende.arende_mening == "Uppdaterad via API"
+
+    def test_api_byt_status_giltig_overgang(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-status-ok-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-ST-1", status="oppnat")
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/status",
+            data=json.dumps({"ny_status": "pagaende"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "pagaende"
+        db.session.refresh(arende)
+        assert arende.status == "pagaende"
+
+    def test_api_byt_status_ogiltig_overgang_ger_422(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-status-fel-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-ST-2", status="oppnat")
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/status",
+            data=json.dumps({"ny_status": "arkiverat"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 422
+
+    # ── Handlingar & versioner ─────────────────────────────────────────
+
+    def test_api_skapa_handling_utan_fil(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-handling-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H1")
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/handlingar",
+            data={"typ": "inkommande", "beskrivning": "Handling utan fil"},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["beskrivning"] == "Handling utan fil"
+        handling = Handling.query.first()
+        assert handling.versioner.count() == 0
+
+    def test_api_skapa_handling_med_fil(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-handling-fil-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H2")
+        db.session.commit()
+
+        data = {
+            "typ": "inkommande",
+            "beskrivning": "Handling med PDF",
+            "fil": (io.BytesIO(b"%PDF-1.4\n% testdata"), "rapport.pdf"),
+        }
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            resp = client.post(
+                f"/api/v1/arenden/{arende.id}/handlingar",
+                data=data,
+                content_type="multipart/form-data",
+                headers={"Authorization": f"Bearer {raw_key}"},
+            )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["versioner"][0]["version_nr"] == 1
+        handling = Handling.query.first()
+        assert handling.versioner.count() == 1
+
+    def test_api_skapa_handling_ogiltig_typ_ger_422(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-handling-typ-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H3")
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/handlingar",
+            data={"typ": "foobar", "beskrivning": "Fel typ"},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 422
+        assert Handling.query.count() == 0
+
+    def test_api_skapa_handling_pa_borttaget_arende_ger_404(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-handling-borttagen-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H4")
+        arende.deleted = True
+        db.session.commit()
+
+        resp = client.post(
+            f"/api/v1/arenden/{arende.id}/handlingar",
+            data={"typ": "inkommande", "beskrivning": "Borttaget ärende"},
+            content_type="multipart/form-data",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 404
+        assert Handling.query.count() == 0
+
+    def test_api_hamta_handling(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-hamta-handling-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H5")
+        handling = _skapa_handling(db, arende, reg, beskrivning="En handling")
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/handlingar/{handling.id}",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["beskrivning"] == "En handling"
+
+    def test_api_hamta_handling_borttagen_ger_404(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-hamta-handling-bortt-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H6")
+        handling = _skapa_handling(db, arende, reg)
+        handling.deleted = True
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/handlingar/{handling.id}",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 404
+
+    def test_api_hamta_handling_sekretess_ger_403(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        obs = skapa_user(db, username="obs", role="observator")
+        _, raw_key = _skapa_api_nyckel(db, obs, raw_key="test-api-handling-sek-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H7")
+        handling = _skapa_handling(db, arende, reg, sekretess=True)
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/handlingar/{handling.id}",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 403
+
+    def test_api_redigera_handling(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-redigera-handling-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H8")
+        handling = _skapa_handling(db, arende, reg, beskrivning="Original")
+        db.session.commit()
+
+        resp = client.put(
+            f"/api/v1/handlingar/{handling.id}",
+            data=json.dumps({"beskrivning": "Uppdaterad handling"}),
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["beskrivning"] == "Uppdaterad handling"
+        db.session.refresh(handling)
+        assert handling.beskrivning == "Uppdaterad handling"
+
+    def test_api_ladda_upp_version(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-version-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H9")
+        handling = _skapa_handling(db, arende, reg)
+        _skapa_version(db, handling, reg, version_nr=1, fildata=b"v1")
+        db.session.commit()
+
+        data = {
+            "fil": (io.BytesIO(b"v2-data"), "v2.pdf"),
+            "kommentar": "Andra versionen",
+        }
+        with patch(MOCK_MAGIC, return_value="application/pdf"):
+            resp = client.post(
+                f"/api/v1/handlingar/{handling.id}/versioner",
+                data=data,
+                content_type="multipart/form-data",
+                headers={"Authorization": f"Bearer {raw_key}"},
+            )
+        assert resp.status_code == 201
+        assert resp.get_json()["version_nr"] == 2
+        assert handling.versioner.count() == 2
+
+    def test_api_ladda_ner_fil(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-ner-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H10")
+        handling = _skapa_handling(db, arende, reg)
+        version = _skapa_version(
+            db,
+            handling,
+            reg,
+            filnamn="fil.pdf",
+            fildata=b"%PDF-1.4-innehall",
+            mime_type="application/pdf",
+        )
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/versioner/{version.id}/fil",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 200
+        assert resp.data == b"%PDF-1.4-innehall"
+        assert "fil.pdf" in resp.headers.get("Content-Disposition", "")
+
+    def test_api_ladda_ner_fil_sekretess_ger_403(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        obs = skapa_user(db, username="obs", role="observator")
+        _, raw_key = _skapa_api_nyckel(db, obs, raw_key="test-api-ner-sek-1")
+        arende = _skapa_arende(db, reg, diarienummer="DNR-API-H11")
+        handling = _skapa_handling(db, arende, reg, sekretess=True)
+        version = _skapa_version(db, handling, reg, fildata=b"hemligt")
+        db.session.commit()
+
+        resp = client.get(
+            f"/api/v1/versioner/{version.id}/fil",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 403
+
+    # ── Brukare ────────────────────────────────────────────────────────
+
+    def test_api_brukare_saknad_email_ger_422(self, client, db):
+        reg = skapa_user(db, username="reg", role="registrator")
+        _, raw_key = _skapa_api_nyckel(db, reg, raw_key="test-api-brukare-email-1")
+        db.session.commit()
+
+        resp = client.get(
+            "/api/v1/brukare",
+            headers={"Authorization": f"Bearer {raw_key}"},
+        )
+        assert resp.status_code == 422

@@ -29,11 +29,12 @@
         </table>
     </div>
     <div class="col-md-6">
-        {% if arende.allowed_transitions and (current_user.role in ('admin', 'registrator') or (current_user.role == 'handlaggare' and arende.handlaggare_id == current_user.id)) %}
+        {% if arende.allowed_transitions and (current_user.role in ('admin', 'registrator') or (current_user.role == 'handlaggare' and arende.handlaggare_id == current_user.id) or (current_user.role == 'arkivarie' and 'arkiverat' in arende.allowed_transitions)) %}
         <div class="card">
             <div class="card-body">
                 <h6 class="card-title">Ändra status</h6>
                 {% for s in arende.allowed_transitions %}
+                {% if s == 'arkiverat' or current_user.role != 'arkivarie' %}
                 <form method="POST" action="{{ url_for('arenden.byt_status', arende_id=arende.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="ny_status" value="{{ s }}">
@@ -41,6 +42,7 @@
                         {{ arende.STATUS_LABELS.get(s, s) }}
                     </button>
                 </form>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>

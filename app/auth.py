@@ -7,6 +7,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 
 from app import db, limiter
 from app.models import User, log_action, validera_losenord
+from app.services import sok_arenden
 
 MAX_MISSLYCKADE_FORSOK = 5
 LASNINGSTID_MINUTER = 15
@@ -132,13 +133,18 @@ def logout():
 @auth_bp.route("/dashboard")
 @login_required
 def dashboard():
-    from app.models import Arende, Handling
-    from sqlalchemy import or_
+    from app.models import Arende
+    from sqlalchemy.orm import joinedload
+
+    def _bas_query():
+        return Arende.sekretess_filter(
+            Arende.query.filter_by(deleted=False), current_user
+        )
 
     stats = {
-        "oppna": Arende.query.filter_by(status="oppnat", deleted=False).count(),
-        "pagaende": Arende.query.filter_by(status="pagaende", deleted=False).count(),
-        "avslutade": Arende.query.filter_by(status="avslutat", deleted=False).count(),
+        "oppna": _bas_query().filter_by(status="oppnat").count(),
+        "pagaende": _bas_query().filter_by(status="pagaende").count(),
+        "avslutade": _bas_query().filter_by(status="avslutat").count(),
     }
 
     mina_arenden = []
@@ -147,6 +153,9 @@ def dashboard():
             Arende.query.filter_by(
                 handlaggare_id=current_user.id, deleted=False
             )
+            .options(
+                joinedload(Arende.handlaggare), joinedload(Arende.skapare)
+            )
             .filter(Arende.status.in_(["oppnat", "pagaende"]))
             .order_by(Arende.andrad_datum.desc())
             .limit(10)
@@ -154,7 +163,8 @@ def dashboard():
         )
 
     senaste = (
-        Arende.query.filter_by(deleted=False)
+        _bas_query()
+        .options(joinedload(Arende.handlaggare), joinedload(Arende.skapare))
         .order_by(Arende.skapad_datum.desc())
         .limit(10)
         .all()
@@ -163,64 +173,7 @@ def dashboard():
     sokresultat = None
     q = request.args.get("q", "").strip()
     if q:
-        qt = q[:100]
-        base = Arende.query.filter_by(deleted=False)
-
-        if current_user.role in ("admin", "registrator"):
-            handling_ids = (
-                Handling.query.filter(
-                    Handling.beskrivning.ilike(f"%{qt}%"),
-                    Handling.deleted == False,
-                )
-                .with_entities(Handling.arende_id)
-                .distinct()
-            )
-            sokresultat = (
-                base.filter(
-                    or_(
-                        Arende.arende_mening.ilike(f"%{qt}%"),
-                        Arende.id.in_(handling_ids),
-                    )
-                )
-                .order_by(Arende.skapad_datum.desc())
-                .limit(50)
-                .all()
-            )
-        elif current_user.role == "handlaggare":
-            agda_ids = (
-                Arende.query.filter_by(
-                    handlaggare_id=current_user.id, deleted=False
-                ).with_entities(Arende.id)
-            )
-            handling_ids = (
-                Handling.query.filter(
-                    Handling.beskrivning.ilike(f"%{qt}%"),
-                    Handling.deleted == False,
-                    Handling.arende_id.in_(agda_ids),
-                )
-                .with_entities(Handling.arende_id)
-                .distinct()
-            )
-            sokresultat = (
-                base.filter(
-                    or_(
-                        Arende.arende_mening.ilike(f"%{qt}%"),
-                        Arende.id.in_(handling_ids),
-                    )
-                )
-                .order_by(Arende.skapad_datum.desc())
-                .limit(50)
-                .all()
-            )
-        else:
-            if current_user.role == "observator":
-                base = base.filter(Arende.sekretess == False)
-            sokresultat = (
-                base.filter(Arende.arende_mening.ilike(f"%{qt}%"))
-                .order_by(Arende.skapad_datum.desc())
-                .limit(50)
-                .all()
-            )
+        sokresultat = sok_arenden(current_user, mening=q, limit=50)
 
     return render_template(
         "dashboard.html",
@@ -238,6 +191,11 @@ def byt_losenord():
     if request.method == "POST":
         nytt = request.form.get("nytt_losenord", "")
         bekraftelse = request.form.get("bekraftelse", "")
+        gammalt = request.form.get("gammalt_losenord", "")
+
+        if not current_user.check_password(gammalt):
+            flash("Nuvarande lösenord är fel.", "danger")
+            return render_template("byt_losenord.html")
 
         if nytt != bekraftelse:
             flash("Lösenorden matchar inte.", "danger")

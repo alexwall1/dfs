@@ -2,6 +2,8 @@ import os
 
 # Sätt SQLite innan appen importeras så att create_app() inte ansluter till PostgreSQL.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# Sätt DFS2_ENV=test innan Config laddas (annars krävs SECRET_KEY i production-läge).
+os.environ["DFS2_ENV"] = "test"
 
 import pytest
 

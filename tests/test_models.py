@@ -430,6 +430,87 @@ class TestAuditLog:
         assert entry.user.id == user.id
         assert entry.user.username == "testuser"
 
+    def test_log_action_satter_prev_hash_for_forsta_posten_null(self, app, db):
+        """Första posten i en tom tabell ska ha prev_hash=None."""
+        user = _skapa_user(db)
+        with app.test_request_context():
+            log_action(user_id=user.id, action="forsta")
+            db.session.commit()
+
+        entry = AuditLog.query.first()
+        assert entry.prev_hash is None
+        assert entry.entry_hash is not None
+
+    def test_audit_log_hash_kedja_hel(self, app, db):
+        """En orörd kedja ska verifieras utan brutna poster."""
+        user = _skapa_user(db)
+        with app.test_request_context():
+            for i in range(3):
+                log_action(
+                    user_id=user.id,
+                    action=f"handling_{i}",
+                    target_type="Arende",
+                    target_id=i,
+                    details={"info": f"post {i}"},
+                )
+                db.session.commit()
+
+        assert AuditLog.query.count() == 3
+        assert AuditLog.verify_chain() == []
+
+    def test_audit_log_hash_detekterar_andring(self, app, db):
+        """En post som ändras i DB flaggas av verify_chain()."""
+        from sqlalchemy import update
+
+        user = _skapa_user(db)
+        with app.test_request_context():
+            log_action(
+                user_id=user.id,
+                action="original",
+                target_type="Arende",
+                target_id=1,
+                details={"info": "oforandrat"},
+            )
+            db.session.commit()
+
+        entry = AuditLog.query.first()
+        db.session.execute(
+            update(AuditLog)
+            .where(AuditLog.id == entry.id)
+            .values(details={"info": "manipulerat"})
+        )
+        db.session.commit()
+        db.session.expire_all()
+
+        broken = AuditLog.verify_chain()
+        assert any(eid == entry.id for eid, _ in broken)
+
+    def test_audit_log_hash_detekterar_radering(self, app, db):
+        """Att radera en mittenpost bryter kedjan för nästa post."""
+        user = _skapa_user(db)
+        with app.test_request_context():
+            for i in range(3):
+                log_action(
+                    user_id=user.id,
+                    action=f"post_{i}",
+                    target_type="Arende",
+                    target_id=i,
+                    details={"n": i},
+                )
+                db.session.commit()
+
+        tredje = AuditLog.query.order_by(AuditLog.id.asc())[2]
+        # Radera mittposten (index 1)
+        mitt = AuditLog.query.order_by(AuditLog.id.asc())[1]
+        db.session.delete(mitt)
+        db.session.commit()
+        db.session.expire_all()
+
+        broken = AuditLog.verify_chain()
+        assert any(
+            eid == tredje.id and orsak == "prev_hash_mismatch" for eid, orsak in broken
+        )
+
 
 # ── validera_losenord ────────────────────────────────────────────────
 
@@ -525,6 +606,21 @@ class TestNummerserie:
         db.session.add(s2)
         with pytest.raises(Exception):
             db.session.flush()
+
+    def test_next_number_ar_unik_vid_kapplopning(self, db):
+        """Nummerserie ska vara atomisk och ge unika, sekventiella nummer."""
+        year = datetime.now(timezone.utc).year
+        serie = Nummerserie(prefix="RACE", year=year, current_number=3)
+        db.session.add(serie)
+        db.session.flush()
+
+        n1 = Nummerserie.next_number("RACE")
+        n2 = Nummerserie.next_number("RACE")
+        n3 = Nummerserie.next_number("RACE")
+
+        assert n1 == f"RACE-{year}-0004"
+        assert n2 == f"RACE-{year}-0005"
+        assert n3 == f"RACE-{year}-0006"
 
 
 # ── Installning ──────────────────────────────────────────────────

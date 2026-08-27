@@ -7,6 +7,7 @@ from openpyxl.styles import Font
 from app import db
 from app.models import Arende, User, Nummerserie, Installning, log_action
 from app.auth import role_required
+from app.services import hamta_aktivt_arende
 
 arenden_bp = Blueprint("arenden", __name__, url_prefix="/arenden")
 
@@ -15,7 +16,9 @@ arenden_bp = Blueprint("arenden", __name__, url_prefix="/arenden")
 @login_required
 def lista():
     page = request.args.get("page", 1, type=int)
-    query = Arende.query.filter_by(deleted=False)
+    query = Arende.sekretess_filter(
+        Arende.query.filter_by(deleted=False), current_user
+    )
 
     status = request.args.get("status")
     if status and status in Arende.STATUS_LABELS:
@@ -31,7 +34,17 @@ def lista():
 @arenden_bp.route("/ny", methods=["GET", "POST"])
 @role_required("admin", "registrator")
 def ny():
+    handlaggare = User.query.filter_by(active=True).order_by(User.full_name).all()
+    standardprefix = Installning.get("standardprefix", "DNR")
+
     if request.method == "POST":
+        arende_mening = request.form.get("arende_mening", "").strip()
+        if not arende_mening:
+            flash("Ärendemening är obligatorisk.", "danger")
+            return render_template(
+                "arenden/ny.html", handlaggare=handlaggare, standardprefix=standardprefix
+            )
+
         if current_user.role == "admin":
             prefix = request.form.get("prefix", "").strip().upper() or Installning.get("standardprefix", "DNR")
         else:
@@ -40,7 +53,7 @@ def ny():
 
         arende = Arende(
             diarienummer=diarienummer,
-            arende_mening=request.form["arende_mening"].strip(),
+            arende_mening=arende_mening,
             sekretess="sekretess" in request.form,
             sekretess_grund=request.form.get("sekretess_grund", "").strip() or None,
             skapad_av=current_user.id,
@@ -59,8 +72,6 @@ def ny():
         flash(f"Ärende {diarienummer} skapat.", "success")
         return redirect(url_for("arenden.visa", arende_id=arende.id))
 
-    handlaggare = User.query.filter_by(active=True).order_by(User.full_name).all()
-    standardprefix = Installning.get("standardprefix", "DNR")
     return render_template("arenden/ny.html", handlaggare=handlaggare, standardprefix=standardprefix)
 
 
@@ -92,41 +103,57 @@ def visa(arende_id):
 @arenden_bp.route("/<int:arende_id>/redigera", methods=["GET", "POST"])
 @role_required("admin", "registrator")
 def redigera(arende_id):
-    arende = Arende.query.get_or_404(arende_id)
+    arende = hamta_aktivt_arende(arende_id)
+    handlaggare = User.query.filter_by(active=True).order_by(User.full_name).all()
 
     if request.method == "POST":
-        arende.arende_mening = request.form["arende_mening"].strip()
+        arende_mening = request.form.get("arende_mening", "").strip()
+        if not arende_mening:
+            flash("Ärendemening är obligatorisk.", "danger")
+            return render_template(
+                "arenden/redigera.html", arende=arende, handlaggare=handlaggare
+            )
+
+        gammal_sekretess = arende.sekretess
+        arende.arende_mening = arende_mening
         arende.sekretess = "sekretess" in request.form
         arende.sekretess_grund = (
             request.form.get("sekretess_grund", "").strip() or None
         )
         arende.handlaggare_id = request.form.get("handlaggare_id", type=int) or None
+        log_details = {"diarienummer": arende.diarienummer}
+        if arende.sekretess != gammal_sekretess:
+            log_details["sekretess_fran"] = gammal_sekretess
+            log_details["sekretess_till"] = arende.sekretess
+            log_details["sekretess_andrad"] = True
         log_action(
             current_user.id,
             "redigera_arende",
             "Arende",
             arende.id,
-            {"diarienummer": arende.diarienummer},
+            log_details,
         )
         db.session.commit()
         flash("Ärendet uppdaterat.", "success")
         return redirect(url_for("arenden.visa", arende_id=arende.id))
 
-    handlaggare = User.query.filter_by(active=True).order_by(User.full_name).all()
     return render_template(
         "arenden/redigera.html", arende=arende, handlaggare=handlaggare
     )
 
 
 @arenden_bp.route("/<int:arende_id>/status", methods=["POST"])
-@role_required("admin", "registrator", "handlaggare")
+@role_required("admin", "registrator", "handlaggare", "arkivarie")
 def byt_status(arende_id):
-    arende = Arende.query.get_or_404(arende_id)
+    arende = hamta_aktivt_arende(arende_id)
 
     if current_user.role == "handlaggare" and arende.handlaggare_id != current_user.id:
         abort(403)
 
     ny_status = request.form.get("ny_status")
+
+    if current_user.role == "arkivarie" and ny_status != "arkiverat":
+        abort(403)
 
     if ny_status not in arende.allowed_transitions:
         flash("Ogiltig statusövergång.", "danger")
@@ -149,8 +176,12 @@ def byt_status(arende_id):
 @arenden_bp.route("/exportera")
 @role_required("admin", "registrator")
 def exportera():
+    from sqlalchemy.orm import joinedload
+
     status = request.args.get("status")
-    query = Arende.query.filter_by(deleted=False)
+    query = Arende.query.filter_by(deleted=False).options(
+        joinedload(Arende.handlaggare), joinedload(Arende.skapare)
+    )
     if status and status in Arende.STATUS_LABELS:
         query = query.filter_by(status=status)
     arenden = query.order_by(Arende.skapad_datum.desc()).all()
@@ -194,7 +225,7 @@ def exportera():
 @arenden_bp.route("/<int:arende_id>/ta-bort", methods=["POST"])
 @role_required("admin")
 def ta_bort(arende_id):
-    arende = Arende.query.get_or_404(arende_id)
+    arende = hamta_aktivt_arende(arende_id)
     arende.deleted = True
     log_action(
         current_user.id,
